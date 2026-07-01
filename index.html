@@ -665,7 +665,15 @@
     <div class="setting-row">
       <div>
         <div class="setting-label">比赛总轮数</div>
-        <div class="setting-desc">开始时一次性生成所有轮次对阵</div>
+        <div class="setting-desc" id="roundsDesc">开始时一次性生成所有轮次对阵</div>
+        <div id="roundsSuggest" style="margin-top:5px;display:none;">
+          <span id="roundsSuggestText"></span>
+          <button onclick="applyRecommendedRounds()" id="roundsApplyBtn"
+            style="margin-left:6px;padding:2px 8px;border-radius:6px;border:1.5px solid var(--primary);
+                   background:none;color:var(--primary);font-size:.75rem;font-weight:600;cursor:pointer;">
+            采用
+          </button>
+        </div>
       </div>
       <div class="stepper">
         <button onclick="adjustTotalRounds(-1)">－</button>
@@ -1032,11 +1040,83 @@ function setMode(m) {
 function adjustCourts(delta) {
   STATE.courts = Math.max(1, Math.min(8, STATE.courts + delta));
   document.getElementById('courtsVal').textContent = STATE.courts;
+  updateRoundsSuggest();
 }
 
 function adjustTotalRounds(delta) {
   STATE.totalRounds = Math.max(1, Math.min(20, STATE.totalRounds + delta));
   document.getElementById('totalRoundsVal').textContent = STATE.totalRounds;
+  updateRoundsSuggest();
+}
+
+/**
+ * 计算建议轮数并更新提示
+ * 目标：让每位参赛者平均上场 TARGET_GAMES 场
+ * 公式：每轮上场率 = courts*4 / 参赛人数
+ *       建议轮数 = ceil(TARGET_GAMES / 上场率)
+ *               = ceil(TARGET_GAMES * 参赛人数 / (courts*4))
+ */
+function calcRecommendedRounds(targetGames) {
+  const sel = STATE.players.filter(p => p.selected).length;
+  const onCourtPerRound = STATE.courts * 4;
+  if (sel < 4) return null;
+  if (sel <= onCourtPerRound) {
+    // 人数不超过一轮能全上，TARGET_GAMES 轮即可
+    return targetGames;
+  }
+  return Math.ceil(targetGames * sel / onCourtPerRound);
+}
+
+function updateRoundsSuggest() {
+  const suggestEl = document.getElementById('roundsSuggest');
+  const textEl = document.getElementById('roundsSuggestText');
+  if (!suggestEl || !textEl) return;
+
+  const sel = STATE.players.filter(p => p.selected).length;
+  if (sel < 4) {
+    suggestEl.style.display = 'none';
+    return;
+  }
+
+  const onCourtPerRound = STATE.courts * 4;
+  const rec3 = calcRecommendedRounds(3); // 每人至少3场
+  const rec4 = calcRecommendedRounds(4); // 每人至少4场
+
+  // 每人实际能打的场数（当前 totalRounds 下）
+  const avgGames = (STATE.totalRounds * onCourtPerRound / sel).toFixed(1);
+  const avgGamesRec = rec3 !== null ? (rec3 * onCourtPerRound / sel).toFixed(1) : '-';
+
+  let hint = '';
+  if (sel <= onCourtPerRound) {
+    hint = `${sel} 人全部上场，每轮每人都打，${rec3} 轮 = 每人打 ${rec3} 场`;
+  } else {
+    hint = `${sel} 人 / ${onCourtPerRound} 个位置 · 建议 <b>${rec3}~${rec4} 轮</b>（每人约打 3~4 场）`;
+  }
+
+  // 当前轮数对应的人均场次提示
+  const currentAvgColor = parseFloat(avgGames) < 3 ? 'var(--danger)' : 'var(--primary)';
+
+  textEl.innerHTML = `<span style="font-size:.75rem;color:var(--gray-500);">${hint}</span>
+    <br><span style="font-size:.72rem;color:${currentAvgColor};">当前 ${STATE.totalRounds} 轮 → 人均约 ${avgGames} 场</span>`;
+
+  // 只在建议值与当前值不同时显示"采用"按钮
+  const applyBtn = document.getElementById('roundsApplyBtn');
+  if (applyBtn) {
+    applyBtn.style.display = (rec3 && rec3 !== STATE.totalRounds) ? 'inline' : 'none';
+    applyBtn.textContent = `采用 ${rec3} 轮`;
+  }
+
+  suggestEl.style.display = 'block';
+}
+
+let _recommendedRounds = 6;
+function applyRecommendedRounds() {
+  const rec = calcRecommendedRounds(3);
+  if (!rec) return;
+  STATE.totalRounds = rec;
+  document.getElementById('totalRoundsVal').textContent = STATE.totalRounds;
+  updateRoundsSuggest();
+  showToast(`✅ 已设为建议轮数 ${rec} 轮`);
 }
 
 function setSets(n) {
@@ -1155,6 +1235,7 @@ function renderPlayers() {
   if (STATE.players.length === 0) {
     grid.innerHTML = `<div class="empty-state" style="padding:20px;grid-column:1/-1;">
       <div class="emoji">👤</div><p>还没有参赛人员<br>请添加或批量导入</p></div>`;
+    updateRoundsSuggest();
     return;
   }
   grid.innerHTML = STATE.players.map(p => {
@@ -1170,6 +1251,7 @@ function renderPlayers() {
     </div>`;
   }).join('');
   updatePlayerCount();
+  updateRoundsSuggest();
 }
 
 // =====================================================
@@ -1863,7 +1945,7 @@ function escHtml(str) {
 // 全量渲染（Firebase 同步后调用）
 // =====================================================
 function renderAll() {
-  renderPlayers();
+  renderPlayers(); // renderPlayers 内部已调用 updateRoundsSuggest
   document.getElementById('courtsVal').textContent = STATE.courts;
   document.getElementById('totalRoundsVal').textContent = STATE.totalRounds;
   document.getElementById('modeDouble').classList.toggle('active', STATE.mode === 'double');
