@@ -664,6 +664,17 @@
     </div>
     <div class="setting-row">
       <div>
+        <div class="setting-label">比赛总轮数</div>
+        <div class="setting-desc">开始时一次性生成所有轮次对阵</div>
+      </div>
+      <div class="stepper">
+        <button onclick="adjustTotalRounds(-1)">－</button>
+        <span class="val" id="totalRoundsVal">6</span>
+        <button onclick="adjustTotalRounds(1)">＋</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
         <div class="setting-label">管理员密码</div>
         <div class="setting-desc">输入比分需要此密码</div>
       </div>
@@ -715,7 +726,7 @@
 
   <!-- 开始比赛 -->
   <button class="btn btn-primary btn-block" id="startBtn" onclick="startTournament()" style="font-size:1rem;padding:14px;">
-    🏸 开始比赛 / 生成第一轮
+    🏸 开始比赛（一次生成全部轮次）
   </button>
 
   <div class="safe-bottom"></div>
@@ -743,12 +754,9 @@
     <div class="queue-list" id="waitingList"></div>
   </div>
 
-  <!-- 下一轮 -->
-  <div id="nextRoundArea" style="display:none">
-    <div class="divider"></div>
-    <button class="btn btn-accent btn-block" onclick="generateNextRound()" style="font-size:1rem;padding:14px;">
-      ➡️ 生成下一轮
-    </button>
+  <!-- 轮次进度提示 -->
+  <div id="roundProgressArea" style="display:none;margin-bottom:14px;">
+    <div id="roundProgressContent"></div>
   </div>
 
   <div class="safe-bottom"></div>
@@ -917,6 +925,7 @@ const STATE = {
   mode: 'double',       // 'double' | 'mixed'
   courts: 2,
   setsPerMatch: 1,
+  totalRounds: 6,       // 预设总轮数
   adminPwd: 'admin123', // 默认密码
   isAdmin: false,
   players: [],          // [{id, name, gender, totalGames, wins, waitRounds, points, lastPlayedRound}]
@@ -924,6 +933,7 @@ const STATE = {
   currentRoundIdx: 0,   // 当前查看的轮次
   activeRound: 0,       // 当前最新轮次索引
   scoreModalCtx: null,  // {roundIdx, matchIdx}
+  _syncing: false,      // 防止 Firebase 回调覆盖本地写入
 };
 
 // 临时选中的新增人员性别
@@ -933,7 +943,8 @@ let newPlayerGenderVal = 'M';
 // Firebase 同步
 // =====================================================
 window.syncFromRemote = function(data) {
-  if (!data) return;
+  // 本地正在写入时，忽略 Firebase 回调，避免状态被旧快照覆盖
+  if (!data || STATE._syncing) return;
 
   // 同步设置
   if (data.settings) {
@@ -941,21 +952,27 @@ window.syncFromRemote = function(data) {
       mode: data.settings.mode ?? STATE.mode,
       courts: data.settings.courts ?? STATE.courts,
       setsPerMatch: data.settings.setsPerMatch ?? STATE.setsPerMatch,
+      totalRounds: data.settings.totalRounds ?? STATE.totalRounds,
       adminPwd: data.settings.adminPwd ?? STATE.adminPwd,
     });
   }
   // 同步人员
   if (data.players) {
-    // 只同步已有人员的数据（不删除本地未同步的），以 id 为键
     const remoteMap = {};
-    Object.values(data.players).forEach(p => { if(p && p.id) remoteMap[p.id] = p; });
+    Object.values(data.players).forEach(p => { if (p && p.id) remoteMap[p.id] = p; });
     STATE.players = Object.values(remoteMap);
   }
   // 同步轮次
   if (data.rounds) {
-    STATE.rounds = Array.isArray(data.rounds) ? data.rounds
+    const incoming = Array.isArray(data.rounds)
+      ? data.rounds
       : Object.values(data.rounds).filter(Boolean);
+    STATE.rounds = incoming;
     STATE.activeRound = STATE.rounds.length - 1;
+    // 查看指针跟随最新轮，但不强制跳跃（用户可能正在翻历史）
+    if (STATE.currentRoundIdx > STATE.activeRound) {
+      STATE.currentRoundIdx = STATE.activeRound;
+    }
   }
 
   renderAll();
@@ -963,21 +980,25 @@ window.syncFromRemote = function(data) {
 
 function pushToFirebase() {
   if (!window.FIREBASE_CONFIGURED || !window._fbDb) return;
+  // 加锁：写入期间屏蔽 Firebase 回调覆盖
+  STATE._syncing = true;
   try {
     window._fbSet('settings', {
       mode: STATE.mode,
       courts: STATE.courts,
       setsPerMatch: STATE.setsPerMatch,
+      totalRounds: STATE.totalRounds,
       adminPwd: STATE.adminPwd,
     });
-    // 人员以 id 为 key 存储
     const playersObj = {};
     STATE.players.forEach(p => { playersObj[p.id] = p; });
     window._fbSet('players', playersObj);
-    // 轮次
     window._fbSet('rounds', STATE.rounds);
   } catch(e) {
     console.warn('Firebase 写入失败:', e);
+  } finally {
+    // 500ms 后解锁，让 Firebase 回调重新生效
+    setTimeout(() => { STATE._syncing = false; }, 500);
   }
 }
 
@@ -1011,6 +1032,11 @@ function setMode(m) {
 function adjustCourts(delta) {
   STATE.courts = Math.max(1, Math.min(8, STATE.courts + delta));
   document.getElementById('courtsVal').textContent = STATE.courts;
+}
+
+function adjustTotalRounds(delta) {
+  STATE.totalRounds = Math.max(1, Math.min(20, STATE.totalRounds + delta));
+  document.getElementById('totalRoundsVal').textContent = STATE.totalRounds;
 }
 
 function setSets(n) {
@@ -1286,6 +1312,7 @@ function startTournament() {
     showToast('至少需要选中 4 名参赛选手');
     return;
   }
+  if (!confirm(`确认开始比赛？将一次性生成 ${STATE.totalRounds} 轮对阵。`)) return;
 
   // 重置统计
   STATE.players.forEach(p => {
@@ -1295,45 +1322,20 @@ function startTournament() {
   STATE.activeRound = 0;
   STATE.currentRoundIdx = 0;
 
-  const round = generateRound(0);
-  if (!round) return;
-
-  // 更新 waitRounds：未上场的人 +1
-  updatePlayerStats(round, 0);
-
-  STATE.rounds.push(round);
-  STATE.activeRound = 0;
-  STATE.currentRoundIdx = 0;
-
-  pushToFirebase();
-  showToast('🏸 比赛开始！第 1 轮已生成');
-  showPage('match');
-}
-
-function generateNextRound() {
-  if (!requireAdmin()) return;
-
-  // 检查当前轮次是否都完成了（可选：允许提前生成）
-  const currentRound = STATE.rounds[STATE.activeRound];
-  const allDone = currentRound && currentRound.matches.every(m => m.status === 'done');
-  if (!allDone) {
-    if (!confirm('当前轮次还有未完成的比赛，确定生成下一轮？')) return;
+  // 一次性生成所有轮次
+  for (let i = 0; i < STATE.totalRounds; i++) {
+    const round = generateRound(i);
+    if (!round) return;
+    updatePlayerStats(round, i);
+    STATE.rounds.push(round);
   }
 
-  const nextIdx = STATE.rounds.length;
-  const round = generateRound(nextIdx);
-  if (!round) return;
-
-  updatePlayerStats(round, nextIdx);
-
-  STATE.rounds.push(round);
   STATE.activeRound = STATE.rounds.length - 1;
-  STATE.currentRoundIdx = STATE.activeRound;
+  STATE.currentRoundIdx = 0; // 从第 1 轮开始查看
 
   pushToFirebase();
-  showToast(`🏸 第 ${round.roundNum} 轮已生成`);
-  renderMatchPage();
-  document.getElementById('dotMatch').style.display = 'inline-block';
+  showToast(`🏸 比赛开始！已生成 ${STATE.totalRounds} 轮对阵`);
+  showPage('match');
 }
 
 /**
@@ -1363,7 +1365,7 @@ function renderMatchPage() {
         <p>还没有对阵安排<br>请先在「设置」页开始比赛</p>
       </div>`;
     document.getElementById('waitingCard').style.display = 'none';
-    document.getElementById('nextRoundArea').style.display = 'none';
+    document.getElementById('roundProgressArea').style.display = 'none';
     document.getElementById('courtSummary').innerHTML = '';
     return;
   }
@@ -1396,10 +1398,55 @@ function renderMatchPage() {
     waitCard.style.display = 'none';
   }
 
-  // 下一轮按钮（只在最后一轮显示）
-  const isLast = STATE.currentRoundIdx === STATE.rounds.length - 1;
-  const nextArea = document.getElementById('nextRoundArea');
-  nextArea.style.display = (isLast && STATE.isAdmin) ? 'block' : 'none';
+  // 轮次进度区域
+  renderRoundProgress();
+}
+
+function renderRoundProgress() {
+  const area = document.getElementById('roundProgressArea');
+  const content = document.getElementById('roundProgressContent');
+  if (!area || !content) return;
+
+  if (STATE.rounds.length === 0) {
+    area.style.display = 'none';
+    return;
+  }
+
+  area.style.display = 'block';
+  const total = STATE.rounds.length;
+  const doneRounds = STATE.rounds.filter(r => r.matches.every(m => m.status === 'done')).length;
+
+  // 轮次进度小方块
+  const dots = STATE.rounds.map((r, i) => {
+    const allDone = r.matches.every(m => m.status === 'done');
+    const partDone = !allDone && r.matches.some(m => m.status === 'done');
+    const isCurrent = i === STATE.currentRoundIdx;
+    let bg = allDone ? 'var(--primary)' : partDone ? 'var(--accent)' : 'var(--gray-200)';
+    let border = isCurrent ? '2px solid var(--gray-700)' : '2px solid transparent';
+    return `<div onclick="jumpToRound(${i})" style="
+      width:28px;height:28px;border-radius:6px;background:${bg};border:${border};
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:.7rem;font-weight:700;color:${allDone || partDone ? 'white' : 'var(--gray-400)'};
+      cursor:pointer;flex-shrink:0;
+    ">${r.roundNum}</div>`;
+  }).join('');
+
+  content.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:12px;box-shadow:var(--shadow);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:.82rem;font-weight:700;color:var(--gray-700);">📋 轮次进度</span>
+        <span style="font-size:.78rem;color:var(--gray-400);">${doneRounds}/${total} 轮完成</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">${dots}</div>
+      <div style="margin-top:8px;">
+        <div class="progress-bar"><div class="progress-fill" style="width:${total > 0 ? Math.round(doneRounds/total*100) : 0}%"></div></div>
+      </div>
+    </div>`;
+}
+
+function jumpToRound(idx) {
+  STATE.currentRoundIdx = idx;
+  renderMatchPage();
 }
 
 function renderCourtSummary(round) {
@@ -1818,6 +1865,7 @@ function escHtml(str) {
 function renderAll() {
   renderPlayers();
   document.getElementById('courtsVal').textContent = STATE.courts;
+  document.getElementById('totalRoundsVal').textContent = STATE.totalRounds;
   document.getElementById('modeDouble').classList.toggle('active', STATE.mode === 'double');
   document.getElementById('modeMixed').classList.toggle('active', STATE.mode === 'mixed');
   document.getElementById('sets1').classList.toggle('active', STATE.setsPerMatch === 1);
