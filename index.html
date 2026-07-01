@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>羽毛球轮转赛</title>
+  <style>
+    /* ===== 全局 ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #16a34a;
+      --primary-dark: #15803d;
+      --primary-light: #dcfce7;
+      --accent: #f97316;
+      --accent-light: #fff7ed;
+      --danger: #dc2626;
+      --danger-light: #fef2f2;
+      --sky: #0284c7;
+      --sky-light: #e0f2fe;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06);
+    }
+    html { font-size: 16px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      background: var(--gray-100);
+      color: var(--gray-900);
+      min-height: 100vh;
+    }
+
+    /* ===== 顶部栏 ===== */
+    .top-bar {
+      background: var(--primary);
+      color: white;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-md);
+    }
+    .top-bar h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: .02em; }
+    .top-bar .badge {
+      background: rgba(255,255,255,.2);
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: .78rem;
+    }
+    .admin-btn {
+      background: rgba(255,255,255,.2);
+      border: none;
+      color: white;
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: .82rem;
+      cursor: pointer;
+    }
+    .admin-btn:hover { background: rgba(255,255,255,.3); }
+
+    /* ===== Tab 导航 ===== */
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 2px solid var(--gray-200);
+      position: sticky;
+      top: 56px;
+      z-index: 99;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px 4px;
+      border: none;
+      background: none;
+      font-size: .85rem;
+      font-weight: 500;
+      color: var(--gray-500);
+      cursor: pointer;
+      position: relative;
+      transition: color .2s;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      font-weight: 700;
+    }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 10%;
+      width: 80%;
+      height: 3px;
+      background: var(--primary);
+      border-radius: 3px 3px 0 0;
+    }
+    .tab-btn .tab-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      background: var(--accent);
+      border-radius: 50%;
+      margin-left: 3px;
+      vertical-align: middle;
+    }
+
+    /* ===== 页面内容 ===== */
+    .page { display: none; padding: 16px; max-width: 600px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    /* ===== 通用卡片 ===== */
+    .card {
+      background: white;
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: .9rem;
+      font-weight: 700;
+      color: var(--gray-700);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-title .icon { font-size: 1rem; }
+
+    /* ===== 按钮 ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: none;
+      font-size: .9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(.96); }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-accent { background: var(--accent); color: white; }
+    .btn-accent:hover { background: #ea6c00; }
+    .btn-sky { background: var(--sky); color: white; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-outline {
+      background: none;
+      border: 1.5px solid var(--gray-300);
+      color: var(--gray-700);
+    }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-sm { padding: 6px 12px; font-size: .82rem; }
+    .btn-block { width: 100%; }
+    .btn:disabled { opacity: .45; pointer-events: none; }
+
+    /* ===== 标签/胶囊 ===== */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: .78rem;
+      font-weight: 500;
+    }
+    .chip-green { background: var(--primary-light); color: var(--primary-dark); }
+    .chip-orange { background: var(--accent-light); color: #c2410c; }
+    .chip-sky { background: var(--sky-light); color: #0369a1; }
+    .chip-gray { background: var(--gray-100); color: var(--gray-500); }
+
+    /* ===== 设置页 ===== */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { font-size: .88rem; color: var(--gray-700); }
+    .setting-desc { font-size: .75rem; color: var(--gray-400); margin-top: 2px; }
+
+    /* 切换开关 */
+    .toggle-group {
+      display: flex;
+      background: var(--gray-100);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    .toggle-group button {
+      padding: 5px 12px;
+      border: none;
+      background: none;
+      border-radius: 6px;
+      font-size: .82rem;
+      cursor: pointer;
+      color: var(--gray-500);
+      font-weight: 500;
+    }
+    .toggle-group button.active {
+      background: white;
+      color: var(--primary);
+      font-weight: 700;
+      box-shadow: var(--shadow);
+    }
+
+    /* 数字步进 */
+    .stepper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .stepper button {
+      width: 30px; height: 30px;
+      border: 1.5px solid var(--gray-300);
+      background: white;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      color: var(--gray-700);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stepper button:active { background: var(--gray-100); }
+    .stepper .val { font-weight: 700; font-size: 1.1rem; min-width: 24px; text-align: center; }
+
+    /* ===== 人员选择 ===== */
+    .player-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .player-chip {
+      padding: 8px 4px;
+      border-radius: 10px;
+      border: 2px solid var(--gray-200);
+      background: white;
+      text-align: center;
+      font-size: .8rem;
+      cursor: pointer;
+      transition: all .15s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+    }
+    .player-chip .player-name { font-weight: 600; word-break: break-all; line-height: 1.2; }
+    .player-chip .player-count {
+      font-size: .7rem;
+      color: var(--gray-400);
+      margin-top: 2px;
+    }
+    .player-chip.selected {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+    .player-chip.selected .player-name { color: var(--primary-dark); }
+    .player-chip.selected .player-count { color: var(--primary); }
+    .player-chip.playing {
+      border-color: var(--accent);
+      background: var(--accent-light);
+    }
+    .player-chip.playing::after {
+      content: '▶';
+      position: absolute;
+      top: 2px; right: 4px;
+      font-size: .6rem;
+      color: var(--accent);
+    }
+
+    /* 添加人员输入 */
+    .add-player-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .add-player-row input {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: .9rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .add-player-row input:focus { border-color: var(--primary); }
+    .add-player-row textarea {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: .9rem;
+      outline: none;
+      resize: none;
+      height: 80px;
+      transition: border-color .2s;
+    }
+    .add-player-row textarea:focus { border-color: var(--primary); }
+
+    /* ===== 对阵表 ===== */
+    .round-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .round-title { font-size: 1rem; font-weight: 700; }
+    .round-status { font-size: .8rem; color: var(--gray-400); }
+
+    .match-card {
+      border: 1.5px solid var(--gray-200);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .match-header {
+      background: var(--gray-50);
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .match-court { font-size: .8rem; font-weight: 700; color: var(--gray-500); }
+    .match-status-chip { font-size: .72rem; }
+    .match-body {
+      padding: 12px;
+    }
+    .teams {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .team {
+      flex: 1;
+      text-align: center;
+    }
+    .team-players {
+      font-size: .88rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+    .vs {
+      flex-shrink: 0;
+      font-size: .8rem;
+      font-weight: 700;
+      color: var(--gray-400);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .score-display {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      justify-content: center;
+      align-items: center;
+    }
+    .score-num {
+      font-size: 1.8rem;
+      font-weight: 800;
+      min-width: 36px;
+      text-align: center;
+      line-height: 1;
+    }
+    .score-num.winner { color: var(--primary); }
+    .score-sep { color: var(--gray-300); font-size: 1.2rem; font-weight: 300; }
+
+    /* 分数输入 */
+    .score-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .score-input {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .score-input label { font-size: .72rem; color: var(--gray-500); }
+    .score-input-stepper {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .score-input-stepper button {
+      width: 32px; height: 32px;
+      border: 1.5px solid var(--gray-200);
+      background: var(--gray-50);
+      border-radius: 8px;
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .score-input-stepper button:active { background: var(--gray-200); }
+    .score-input-stepper .score-val {
+      font-size: 1.4rem;
+      font-weight: 700;
+      min-width: 30px;
+      text-align: center;
+    }
+    .save-score-btn {
+      margin-top: 8px;
+    }
+
+    /* ===== 统计页 ===== */
+    .stat-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .stat-table th {
+      background: var(--gray-50);
+      padding: 8px 10px;
+      text-align: left;
+      font-size: .78rem;
+      color: var(--gray-500);
+      border-bottom: 1.5px solid var(--gray-200);
+    }
+    .stat-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .stat-table tr:last-child td { border-bottom: none; }
+    .stat-table tr:hover td { background: var(--gray-50); }
+    .stat-rank { font-weight: 700; color: var(--gray-400); }
+    .stat-rank.gold { color: #d97706; }
+    .stat-rank.silver { color: var(--gray-400); }
+    .stat-rank.bronze { color: #92400e; }
+
+    /* ===== 进度条 ===== */
+    .progress-bar {
+      height: 6px;
+      background: var(--gray-200);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 99px;
+      transition: width .3s;
+    }
+
+    /* ===== 等待队列可视化 ===== */
+    .queue-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .queue-item {
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: .8rem;
+      font-weight: 500;
+    }
+
+    /* ===== 弹窗 ===== */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 20px 40px rgba(0,0,0,.2);
+    }
+    .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+    .modal input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: 1rem;
+      outline: none;
+      margin-bottom: 12px;
+    }
+    .modal input:focus { border-color: var(--primary); }
+    .modal-btns { display: flex; gap: 8px; }
+    .modal-btns .btn { flex: 1; }
+
+    /* ===== 提示 ===== */
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--gray-900);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 99px;
+      font-size: .88rem;
+      opacity: 0;
+      transition: all .3s;
+      z-index: 300;
+      white-space: nowrap;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ===== 空状态 ===== */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--gray-400);
+    }
+    .empty-state .emoji { font-size: 2.5rem; margin-bottom: 10px; }
+    .empty-state p { font-size: .88rem; line-height: 1.6; }
+
+    /* ===== 底部安全区 ===== */
+    .safe-bottom { height: 20px; }
+
+    /* ===== 连接状态 ===== */
+    .conn-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #94a3b8;
+    }
+    .conn-dot.online { background: #4ade80; }
+    .conn-dot.offline { background: #f87171; }
+
+    /* ===== 响应式 ===== */
+    @media (max-width: 380px) {
+      .player-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
+      .tab-btn { font-size: .78rem; }
+    }
+
+    /* ===== 轮次历史 ===== */
+    .round-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .round-nav button {
+      width: 34px; height: 34px;
+      border: 1.5px solid var(--gray-200);
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .round-nav button:disabled { opacity: .3; pointer-events: none; }
+    .round-nav .round-label {
+      flex: 1;
+      text-align: center;
+      font-weight: 700;
+      font-size: .95rem;
+    }
+
+    /* ===== 场地占用摘要条 ===== */
+    .court-summary {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .court-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      background: white;
+      border-radius: 99px;
+      font-size: .8rem;
+      font-weight: 600;
+      box-shadow: var(--shadow);
+    }
+    .court-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-playing { background: var(--accent); }
+    .dot-done { background: var(--primary); }
+    .dot-waiting { background: var(--gray-300); }
+
+    /* 分隔线 */
+    .divider { height: 1px; background: var(--gray-200); margin: 12px 0; }
+  </style>
+</head>
+<body>
+
+<!-- 顶部栏 -->
+<div class="top-bar">
+  <h1>🏸 羽毛球轮转赛</h1>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span class="conn-dot" id="connDot"></span>
+    <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdmin()">🔑 管理</button>
+  </div>
+</div>
+
+<!-- Tab 导航 -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="showPage('setup')">⚙️ 设置</button>
+  <button class="tab-btn" onclick="showPage('match')" id="tabMatch">🏆 对阵 <span class="tab-dot" id="dotMatch" style="display:none"></span></button>
+  <button class="tab-btn" onclick="showPage('stats')">📊 统计</button>
+</div>
+
+<!-- ========== 设置页 ========== -->
+<div class="page active" id="page-setup">
+
+  <!-- 比赛设置 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">⚙️</span> 比赛设置</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">比赛模式</div>
+        <div class="setting-desc">混双 = 男女搭档；自由双打 = 任意组合</div>
+      </div>
+      <div class="toggle-group">
+        <button id="modeDouble" class="active" onclick="setMode('double')">自由双打</button>
+        <button id="modeMixed" onclick="setMode('mixed')">混双</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">场地数量</div>
+        <div class="setting-desc">同时进行的场地数</div>
+      </div>
+      <div class="stepper">
+        <button onclick="adjustCourts(-1)">－</button>
+        <span class="val" id="courtsVal">2</span>
+        <button onclick="adjustCourts(1)">＋</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">每场局数</div>
+        <div class="setting-desc">每场比赛打几局</div>
+      </div>
+      <div class="toggle-group">
+        <button id="sets1" class="active" onclick="setSets(1)">1 局</button>
+        <button id="sets3" onclick="setSets(3)">3 局</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">管理员密码</div>
+        <div class="setting-desc">输入比分需要此密码</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="openPwdModal()">修改密码</button>
+    </div>
+  </div>
+
+  <!-- 人员管理 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">👥</span> 参赛人员 <span id="playerCountBadge" class="chip chip-green" style="margin-left:auto">0 人</span></div>
+
+    <!-- 批量导入 -->
+    <details style="margin-bottom:12px;">
+      <summary style="font-size:.85rem;color:var(--sky);cursor:pointer;user-select:none;">📋 批量导入（每行一个名字）</summary>
+      <div class="add-player-row" style="margin-top:8px;flex-direction:column;">
+        <textarea id="batchInput" placeholder="张三&#10;李四&#10;王五&#10;..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-outline btn-sm" onclick="batchImport()">导入</button>
+          <button class="btn btn-outline btn-sm" onclick="clearAllPlayers()">清空全部</button>
+        </div>
+      </div>
+    </details>
+
+    <!-- 单个添加 -->
+    <div class="add-player-row">
+      <input type="text" id="newPlayerName" placeholder="输入姓名" maxlength="8"
+             onkeydown="if(event.key==='Enter')addPlayer()" />
+      <div id="newPlayerGender" class="toggle-group" style="flex-shrink:0;">
+        <button id="gM" class="active" onclick="selectGender('M')">♂ 男</button>
+        <button id="gF" onclick="selectGender('F')">♀ 女</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="addPlayer()">添加</button>
+    </div>
+
+    <div id="playerGrid" class="player-grid">
+      <div class="empty-state" style="padding:20px;grid-column:1/-1;">
+        <div class="emoji">👤</div>
+        <p>还没有参赛人员<br>请添加或批量导入</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:.82rem;color:var(--gray-400);">已选：<span id="selectedCount">0</span> 人参赛</span>
+      <button class="btn btn-outline btn-sm" onclick="selectAll()">全选</button>
+      <button class="btn btn-outline btn-sm" onclick="selectNone()">取消选择</button>
+    </div>
+  </div>
+
+  <!-- 开始比赛 -->
+  <button class="btn btn-primary btn-block" id="startBtn" onclick="startTournament()" style="font-size:1rem;padding:14px;">
+    🏸 开始比赛 / 生成第一轮
+  </button>
+
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- ========== 对阵页 ========== -->
+<div class="page" id="page-match">
+
+  <!-- 轮次导航 -->
+  <div class="round-nav">
+    <button onclick="prevRound()" id="btnPrevRound">◀</button>
+    <div class="round-label" id="roundLabel">第 1 轮</div>
+    <button onclick="nextRound()" id="btnNextRound">▶</button>
+  </div>
+
+  <!-- 场地状态条 -->
+  <div class="court-summary" id="courtSummary"></div>
+
+  <!-- 对阵列表 -->
+  <div id="matchList"></div>
+
+  <!-- 等待区 -->
+  <div class="card" id="waitingCard" style="display:none">
+    <div class="card-title"><span class="icon">⏳</span> 本轮休息等待</div>
+    <div class="queue-list" id="waitingList"></div>
+  </div>
+
+  <!-- 下一轮 -->
+  <div id="nextRoundArea" style="display:none">
+    <div class="divider"></div>
+    <button class="btn btn-accent btn-block" onclick="generateNextRound()" style="font-size:1rem;padding:14px;">
+      ➡️ 生成下一轮
+    </button>
+  </div>
+
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- ========== 统计页 ========== -->
+<div class="page" id="page-stats">
+
+  <!-- 总览 -->
+  <div class="card" id="statsOverview">
+    <div class="card-title"><span class="icon">📊</span> 比赛总览</div>
+    <div id="overviewContent">
+      <div class="empty-state"><div class="emoji">📊</div><p>比赛开始后显示统计</p></div>
+    </div>
+  </div>
+
+  <!-- 个人战绩 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">🏅</span> 个人战绩</div>
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>排名</th><th>姓名</th><th>场次</th><th>胜场</th><th>得分</th><th>等待</th>
+        </tr>
+      </thead>
+      <tbody id="statsTbody">
+        <tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 轮次历史 -->
+  <div class="card">
+    <div class="card-title"><span class="icon">📋</span> 比赛历史</div>
+    <div id="historyList">
+      <div class="empty-state"><div class="emoji">📋</div><p>比赛开始后显示历史记录</p></div>
+    </div>
+  </div>
+
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- 管理员登录弹窗 -->
+<div class="modal-overlay" id="adminModal">
+  <div class="modal">
+    <div class="modal-title">🔑 管理员登录</div>
+    <input type="password" id="adminPwdInput" placeholder="输入管理员密码"
+           onkeydown="if(event.key==='Enter')verifyAdmin()" />
+    <div id="adminError" style="color:var(--danger);font-size:.82rem;margin-bottom:8px;display:none;">密码错误</div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('adminModal')">取消</button>
+      <button class="btn btn-primary" onclick="verifyAdmin()">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 修改密码弹窗 -->
+<div class="modal-overlay" id="pwdModal">
+  <div class="modal">
+    <div class="modal-title">🔒 修改管理员密码</div>
+    <input type="password" id="newPwd1" placeholder="新密码" />
+    <input type="password" id="newPwd2" placeholder="确认新密码" />
+    <div id="pwdError" style="color:var(--danger);font-size:.82rem;margin-bottom:8px;display:none;"></div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('pwdModal')">取消</button>
+      <button class="btn btn-primary" onclick="savePwd()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 比分录入弹窗 -->
+<div class="modal-overlay" id="scoreModal">
+  <div class="modal">
+    <div class="modal-title" id="scoreModalTitle">录入比分</div>
+    <div id="scoreModalBody"></div>
+    <div class="modal-btns" style="margin-top:12px;">
+      <button class="btn btn-outline" onclick="closeModal('scoreModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveScore()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 提示 -->
+<div class="toast" id="toast"></div>
+
+<!-- =========================================================
+     Firebase SDK (Modular v10 compat)
+     用户需要替换 firebaseConfig 为自己的配置
+========================================================= -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, set, onValue, push, update, get }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  // =====================================================
+  // 🔧 请替换为你自己的 Firebase 配置
+  // =====================================================
+  const firebaseConfig = {
+    apiKey: "AIzaSyBk2L1axR91IMk9uk5A5Cs1sot4-ivWm6s",
+    authDomain: "badminton-2026-a5a72.firebaseapp.com",
+    databaseURL: "https://badminton-2026-a5a72-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "badminton-2026-a5a72",
+    storageBucket: "badminton-2026-a5a72.firebasestorage.app",
+    messagingSenderId: "1088866181689",
+    appId: "G-J7R12WDTHD"
+  };
+
+  // 检测是否已配置 Firebase
+  const FIREBASE_CONFIGURED = !firebaseConfig.apiKey.includes('YOUR');
+
+  let db = null;
+  let dbRef = null;
+
+  if (FIREBASE_CONFIGURED) {
+    try {
+      const app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+      dbRef = ref(db, 'tournament');
+      window._fbSet = (path, val) => set(ref(db, 'tournament/' + path), val);
+      window._fbUpdate = (path, val) => update(ref(db, 'tournament/' + path), val);
+      window._fbOnValue = (path, cb) => onValue(ref(db, 'tournament/' + path), cb);
+      window._fbPush = (path, val) => push(ref(db, 'tournament/' + path), val);
+      window._fbGet = (path) => get(ref(db, 'tournament/' + path));
+
+      // 监听实时数据
+      onValue(ref(db, 'tournament'), (snap) => {
+        const data = snap.val();
+        if (data) {
+          window._remoteData = data;
+          window.syncFromRemote(data);
+        }
+        setConnStatus(true);
+      }, (err) => {
+        setConnStatus(false);
+        console.warn('Firebase 监听失败:', err);
+      });
+
+      setConnStatus(true);
+      console.log('✅ Firebase 已连接');
+    } catch(e) {
+      console.warn('Firebase 初始化失败:', e);
+      setConnStatus(false);
+    }
+  } else {
+    console.warn('⚠️ Firebase 未配置，使用本地模式（不支持多人实时同步）');
+    setConnStatus(false);
+  }
+
+  window.FIREBASE_CONFIGURED = FIREBASE_CONFIGURED;
+  window._fbDb = db;
+
+  function setConnStatus(online) {
+    const dot = document.getElementById('connDot');
+    if (dot) {
+      dot.classList.toggle('online', online);
+      dot.classList.toggle('offline', !online);
+    }
+  }
+</script>
+
+<script>
+// =====================================================
+// 状态管理
+// =====================================================
+const STATE = {
+  mode: 'double',       // 'double' | 'mixed'
+  courts: 2,
+  setsPerMatch: 1,
+  adminPwd: 'admin123', // 默认密码
+  isAdmin: false,
+  players: [],          // [{id, name, gender, totalGames, wins, waitRounds, points, lastPlayedRound}]
+  rounds: [],           // [{id, matches:[{court, teamA, teamB, scores, status}], waiting:[], timestamp}]
+  currentRoundIdx: 0,   // 当前查看的轮次
+  activeRound: 0,       // 当前最新轮次索引
+  scoreModalCtx: null,  // {roundIdx, matchIdx}
+};
+
+// 临时选中的新增人员性别
+let newPlayerGenderVal = 'M';
+
+// =====================================================
+// Firebase 同步
+// =====================================================
+window.syncFromRemote = function(data) {
+  if (!data) return;
+
+  // 同步设置
+  if (data.settings) {
+    Object.assign(STATE, {
+      mode: data.settings.mode ?? STATE.mode,
+      courts: data.settings.courts ?? STATE.courts,
+      setsPerMatch: data.settings.setsPerMatch ?? STATE.setsPerMatch,
+      adminPwd: data.settings.adminPwd ?? STATE.adminPwd,
+    });
+  }
+  // 同步人员
+  if (data.players) {
+    // 只同步已有人员的数据（不删除本地未同步的），以 id 为键
+    const remoteMap = {};
+    Object.values(data.players).forEach(p => { if(p && p.id) remoteMap[p.id] = p; });
+    STATE.players = Object.values(remoteMap);
+  }
+  // 同步轮次
+  if (data.rounds) {
+    STATE.rounds = Array.isArray(data.rounds) ? data.rounds
+      : Object.values(data.rounds).filter(Boolean);
+    STATE.activeRound = STATE.rounds.length - 1;
+  }
+
+  renderAll();
+};
+
+function pushToFirebase() {
+  if (!window.FIREBASE_CONFIGURED || !window._fbDb) return;
+  try {
+    window._fbSet('settings', {
+      mode: STATE.mode,
+      courts: STATE.courts,
+      setsPerMatch: STATE.setsPerMatch,
+      adminPwd: STATE.adminPwd,
+    });
+    // 人员以 id 为 key 存储
+    const playersObj = {};
+    STATE.players.forEach(p => { playersObj[p.id] = p; });
+    window._fbSet('players', playersObj);
+    // 轮次
+    window._fbSet('rounds', STATE.rounds);
+  } catch(e) {
+    console.warn('Firebase 写入失败:', e);
+  }
+}
+
+// =====================================================
+// 页面切换
+// =====================================================
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  // 找到对应 tab
+  const tabs = ['setup','match','stats'];
+  const idx = tabs.indexOf(name);
+  document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+
+  if (name === 'match') renderMatchPage();
+  if (name === 'stats') renderStats();
+}
+
+// =====================================================
+// 设置
+// =====================================================
+function setMode(m) {
+  STATE.mode = m;
+  document.getElementById('modeDouble').classList.toggle('active', m === 'double');
+  document.getElementById('modeMixed').classList.toggle('active', m === 'mixed');
+  // 混双模式下，重新渲染人员显示性别
+  renderPlayers();
+}
+
+function adjustCourts(delta) {
+  STATE.courts = Math.max(1, Math.min(8, STATE.courts + delta));
+  document.getElementById('courtsVal').textContent = STATE.courts;
+}
+
+function setSets(n) {
+  STATE.setsPerMatch = n;
+  document.getElementById('sets1').classList.toggle('active', n === 1);
+  document.getElementById('sets3').classList.toggle('active', n === 3);
+}
+
+// =====================================================
+// 人员管理
+// =====================================================
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function selectGender(g) {
+  newPlayerGenderVal = g;
+  document.getElementById('gM').classList.toggle('active', g === 'M');
+  document.getElementById('gF').classList.toggle('active', g === 'F');
+}
+
+function addPlayer() {
+  const inp = document.getElementById('newPlayerName');
+  const name = inp.value.trim();
+  if (!name) { showToast('请输入姓名'); return; }
+  if (STATE.players.find(p => p.name === name)) { showToast('已有同名人员'); return; }
+  STATE.players.push({
+    id: genId(),
+    name,
+    gender: newPlayerGenderVal,
+    selected: true,
+    totalGames: 0,
+    wins: 0,
+    waitRounds: 0,
+    points: 0,
+    lastPlayedRound: -1,
+  });
+  inp.value = '';
+  inp.focus();
+  renderPlayers();
+  updatePlayerCount();
+  pushToFirebase();
+}
+
+function batchImport() {
+  const lines = document.getElementById('batchInput').value.trim().split('\n');
+  let added = 0;
+  lines.forEach(line => {
+    // 支持格式：姓名 或 姓名,性别(M/F/男/女)
+    const parts = line.trim().split(/[,，\s]+/);
+    const name = parts[0];
+    if (!name) return;
+    if (STATE.players.find(p => p.name === name)) return;
+    let gender = 'M';
+    if (parts[1]) {
+      const g = parts[1].toUpperCase();
+      if (g === 'F' || g === '女') gender = 'F';
+    }
+    STATE.players.push({
+      id: genId(), name, gender, selected: true,
+      totalGames: 0, wins: 0, waitRounds: 0, points: 0, lastPlayedRound: -1,
+    });
+    added++;
+  });
+  showToast(`成功导入 ${added} 人`);
+  document.getElementById('batchInput').value = '';
+  renderPlayers();
+  updatePlayerCount();
+  pushToFirebase();
+}
+
+function clearAllPlayers() {
+  if (!confirm('确定清空所有人员？')) return;
+  STATE.players = [];
+  renderPlayers();
+  updatePlayerCount();
+  pushToFirebase();
+}
+
+function togglePlayerSelect(id) {
+  const p = STATE.players.find(p => p.id === id);
+  if (!p) return;
+  p.selected = !p.selected;
+  renderPlayers();
+  updatePlayerCount();
+}
+
+function selectAll() {
+  STATE.players.forEach(p => p.selected = true);
+  renderPlayers(); updatePlayerCount();
+}
+function selectNone() {
+  STATE.players.forEach(p => p.selected = false);
+  renderPlayers(); updatePlayerCount();
+}
+
+function updatePlayerCount() {
+  const total = STATE.players.length;
+  const sel = STATE.players.filter(p => p.selected).length;
+  document.getElementById('playerCountBadge').textContent = total + ' 人';
+  document.getElementById('selectedCount').textContent = sel;
+}
+
+function isPlayerPlaying(id) {
+  if (STATE.rounds.length === 0) return false;
+  const round = STATE.rounds[STATE.activeRound];
+  if (!round) return false;
+  return round.matches.some(m =>
+    m.status !== 'done' &&
+    ([...m.teamA, ...m.teamB].some(pid => pid === id))
+  );
+}
+
+function renderPlayers() {
+  const grid = document.getElementById('playerGrid');
+  if (STATE.players.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="padding:20px;grid-column:1/-1;">
+      <div class="emoji">👤</div><p>还没有参赛人员<br>请添加或批量导入</p></div>`;
+    return;
+  }
+  grid.innerHTML = STATE.players.map(p => {
+    const playing = isPlayerPlaying(p.id);
+    const selClass = p.selected ? 'selected' : '';
+    const playClass = playing ? 'playing' : '';
+    const genderIcon = p.gender === 'F' ? '♀' : '♂';
+    const modeShow = STATE.mode === 'mixed' ? `<div class="player-count">${genderIcon}</div>` : '';
+    return `<div class="player-chip ${selClass} ${playClass}" onclick="togglePlayerSelect('${p.id}')">
+      <div class="player-name">${escHtml(p.name)}</div>
+      ${modeShow}
+      <div class="player-count">打${p.totalGames}场</div>
+    </div>`;
+  }).join('');
+  updatePlayerCount();
+}
+
+// =====================================================
+// 轮转算法
+// =====================================================
+function getSelectedPlayers() {
+  return STATE.players.filter(p => p.selected);
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * 公平排队：优先让等待轮次多的人上场，其次是打的场次少的人
+ */
+function fairSort(players, roundIdx) {
+  return [...players].sort((a, b) => {
+    // 等待轮次多的优先
+    const waitDiff = b.waitRounds - a.waitRounds;
+    if (waitDiff !== 0) return waitDiff;
+    // 打的场次少的优先
+    const gameDiff = a.totalGames - b.totalGames;
+    if (gameDiff !== 0) return gameDiff;
+    // 上次打球越早优先（距离现在越久）
+    const lastDiff = a.lastPlayedRound - b.lastPlayedRound;
+    if (lastDiff !== 0) return lastDiff;
+    // 随机打乱同等优先级
+    return Math.random() - 0.5;
+  });
+}
+
+/**
+ * 生成一轮对阵
+ */
+function generateRound(roundIdx) {
+  const courts = STATE.courts;
+  const mode = STATE.mode;
+  const players = getSelectedPlayers();
+
+  if (players.length < 4) {
+    showToast('至少需要 4 名参赛选手');
+    return null;
+  }
+
+  // 按公平排序
+  const sorted = fairSort(players, roundIdx);
+
+  let scheduled = []; // 上场的人 id 列表
+  const matches = [];
+
+  if (mode === 'double') {
+    // 自由双打：前 courts*4 人上场
+    const onCourt = sorted.slice(0, courts * 4);
+    const waiting = sorted.slice(courts * 4);
+    const shuffled = shuffle(onCourt);
+
+    for (let c = 0; c < courts && shuffled.length >= 4; c++) {
+      const group = shuffled.splice(0, 4);
+      // 随机分两队
+      const pair = shuffle(group);
+      matches.push({
+        id: genId(),
+        court: c + 1,
+        teamA: [pair[0].id, pair[1].id],
+        teamB: [pair[2].id, pair[3].id],
+        scores: Array.from({length: STATE.setsPerMatch}, () => ({a: 0, b: 0})),
+        status: 'playing', // 'playing' | 'done'
+      });
+      scheduled.push(...group.map(p => p.id));
+    }
+
+    return {
+      id: genId(),
+      roundNum: roundIdx + 1,
+      matches,
+      waiting: waiting.map(p => p.id),
+      timestamp: Date.now(),
+    };
+
+  } else {
+    // 混双：每队一男一女
+    const males = sorted.filter(p => p.gender === 'M');
+    const females = sorted.filter(p => p.gender === 'F');
+
+    if (males.length < courts * 2 || females.length < courts * 2) {
+      // 男女数量不足时，允许同性搭档，退化为自由双打
+      showToast('男女数量不足以凑满混双，已自动调整');
+      STATE.mode = 'double';
+      document.getElementById('modeDouble').classList.add('active');
+      document.getElementById('modeMixed').classList.remove('active');
+      return generateRound(roundIdx);
+    }
+
+    const mOnCourt = males.slice(0, courts * 2);
+    const fOnCourt = females.slice(0, courts * 2);
+    const mWait = males.slice(courts * 2);
+    const fWait = females.slice(courts * 2);
+
+    const sm = shuffle(mOnCourt);
+    const sf = shuffle(fOnCourt);
+
+    for (let c = 0; c < courts; c++) {
+      const m1 = sm[c * 2], m2 = sm[c * 2 + 1];
+      const f1 = sf[c * 2], f2 = sf[c * 2 + 1];
+      matches.push({
+        id: genId(),
+        court: c + 1,
+        teamA: [m1.id, f1.id],
+        teamB: [m2.id, f2.id],
+        scores: Array.from({length: STATE.setsPerMatch}, () => ({a: 0, b: 0})),
+        status: 'playing',
+      });
+      scheduled.push(m1.id, f1.id, m2.id, f2.id);
+    }
+
+    const waitingAll = [...mWait, ...fWait];
+    return {
+      id: genId(),
+      roundNum: roundIdx + 1,
+      matches,
+      waiting: waitingAll.map(p => p.id),
+      timestamp: Date.now(),
+    };
+  }
+}
+
+// =====================================================
+// 开始比赛 / 生成下一轮
+// =====================================================
+function startTournament() {
+  if (!requireAdmin()) return;
+  const sel = getSelectedPlayers();
+  if (sel.length < 4) {
+    showToast('至少需要选中 4 名参赛选手');
+    return;
+  }
+
+  // 重置统计
+  STATE.players.forEach(p => {
+    p.totalGames = 0; p.wins = 0; p.waitRounds = 0; p.points = 0; p.lastPlayedRound = -1;
+  });
+  STATE.rounds = [];
+  STATE.activeRound = 0;
+  STATE.currentRoundIdx = 0;
+
+  const round = generateRound(0);
+  if (!round) return;
+
+  // 更新 waitRounds：未上场的人 +1
+  updatePlayerStats(round, 0);
+
+  STATE.rounds.push(round);
+  STATE.activeRound = 0;
+  STATE.currentRoundIdx = 0;
+
+  pushToFirebase();
+  showToast('🏸 比赛开始！第 1 轮已生成');
+  showPage('match');
+}
+
+function generateNextRound() {
+  if (!requireAdmin()) return;
+
+  // 检查当前轮次是否都完成了（可选：允许提前生成）
+  const currentRound = STATE.rounds[STATE.activeRound];
+  const allDone = currentRound && currentRound.matches.every(m => m.status === 'done');
+  if (!allDone) {
+    if (!confirm('当前轮次还有未完成的比赛，确定生成下一轮？')) return;
+  }
+
+  const nextIdx = STATE.rounds.length;
+  const round = generateRound(nextIdx);
+  if (!round) return;
+
+  updatePlayerStats(round, nextIdx);
+
+  STATE.rounds.push(round);
+  STATE.activeRound = STATE.rounds.length - 1;
+  STATE.currentRoundIdx = STATE.activeRound;
+
+  pushToFirebase();
+  showToast(`🏸 第 ${round.roundNum} 轮已生成`);
+  renderMatchPage();
+  document.getElementById('dotMatch').style.display = 'inline-block';
+}
+
+/**
+ * 更新人员统计（等待轮次累加、上场状态）
+ */
+function updatePlayerStats(round, roundIdx) {
+  const onCourtIds = new Set(round.matches.flatMap(m => [...m.teamA, ...m.teamB]));
+  STATE.players.forEach(p => {
+    if (!p.selected) return;
+    if (onCourtIds.has(p.id)) {
+      p.waitRounds = 0;
+      p.lastPlayedRound = roundIdx;
+    } else {
+      p.waitRounds = (p.waitRounds || 0) + 1;
+    }
+  });
+}
+
+// =====================================================
+// 对阵页渲染
+// =====================================================
+function renderMatchPage() {
+  if (STATE.rounds.length === 0) {
+    document.getElementById('matchList').innerHTML = `
+      <div class="empty-state">
+        <div class="emoji">🏸</div>
+        <p>还没有对阵安排<br>请先在「设置」页开始比赛</p>
+      </div>`;
+    document.getElementById('waitingCard').style.display = 'none';
+    document.getElementById('nextRoundArea').style.display = 'none';
+    document.getElementById('courtSummary').innerHTML = '';
+    return;
+  }
+
+  const round = STATE.rounds[STATE.currentRoundIdx];
+  if (!round) return;
+
+  // 轮次标签
+  document.getElementById('roundLabel').textContent = `第 ${round.roundNum} 轮`;
+  document.getElementById('btnPrevRound').disabled = STATE.currentRoundIdx <= 0;
+  document.getElementById('btnNextRound').disabled = STATE.currentRoundIdx >= STATE.rounds.length - 1;
+
+  // 场地状态条
+  renderCourtSummary(round);
+
+  // 对阵列表
+  const matchHtml = round.matches.map((m, mi) => renderMatchCard(m, mi, STATE.currentRoundIdx)).join('');
+  document.getElementById('matchList').innerHTML = matchHtml || '<div class="empty-state"><p>暂无对阵</p></div>';
+
+  // 等待区
+  const waitCard = document.getElementById('waitingCard');
+  if (round.waiting && round.waiting.length > 0) {
+    waitCard.style.display = 'block';
+    const waitList = document.getElementById('waitingList');
+    waitList.innerHTML = round.waiting.map(pid => {
+      const p = STATE.players.find(x => x.id === pid);
+      return p ? `<span class="queue-item chip chip-gray">${escHtml(p.name)}<small style="color:var(--gray-400);margin-left:3px">等${p.waitRounds}轮</small></span>` : '';
+    }).join('');
+  } else {
+    waitCard.style.display = 'none';
+  }
+
+  // 下一轮按钮（只在最后一轮显示）
+  const isLast = STATE.currentRoundIdx === STATE.rounds.length - 1;
+  const nextArea = document.getElementById('nextRoundArea');
+  nextArea.style.display = (isLast && STATE.isAdmin) ? 'block' : 'none';
+}
+
+function renderCourtSummary(round) {
+  const container = document.getElementById('courtSummary');
+  const playing = round.matches.filter(m => m.status === 'playing').length;
+  const done = round.matches.filter(m => m.status === 'done').length;
+  const waiting = round.waiting ? round.waiting.length : 0;
+
+  container.innerHTML = `
+    <div class="court-pill"><div class="dot dot-playing"></div> 进行中 ${playing}</div>
+    <div class="court-pill"><div class="dot dot-done"></div> 已完成 ${done}</div>
+    <div class="court-pill"><div class="dot dot-waiting"></div> 等待 ${waiting} 人</div>
+  `;
+}
+
+function renderMatchCard(m, mi, roundIdx) {
+  const getPlayer = id => STATE.players.find(p => p.id === id);
+  const teamANames = m.teamA.map(id => getPlayer(id)?.name || '?').join(' / ');
+  const teamBNames = m.teamB.map(id => getPlayer(id)?.name || '?').join(' / ');
+
+  const statusChip = m.status === 'done'
+    ? '<span class="chip chip-green match-status-chip">✓ 已完成</span>'
+    : '<span class="chip chip-orange match-status-chip">▶ 进行中</span>';
+
+  // 计算得分情况
+  let scoreHtml = '';
+  if (m.scores && m.scores.length > 0) {
+    const winA = m.scores.filter(s => s.a > s.b).length;
+    const winB = m.scores.filter(s => s.b > s.a).length;
+    scoreHtml = `<div class="score-display">
+      <div class="score-num ${winA > winB ? 'winner' : ''}">${winA > winB && m.status === 'done' ? '🏆' : ''}${m.scores.map(s=>s.a).join('-')}</div>
+      <div class="score-sep">:</div>
+      <div class="score-num ${winB > winA ? 'winner' : ''}">${m.scores.map(s=>s.b).join('-')}${winB > winA && m.status === 'done' ? '🏆' : ''}</div>
+    </div>`;
+
+    if (STATE.setsPerMatch === 3) {
+      scoreHtml = `<div class="score-display" style="flex-direction:column;gap:3px;">
+        ${m.scores.map((s, si) => `
+          <div style="display:flex;align-items:center;gap:6px;font-size:.85rem;">
+            <span style="color:var(--gray-400);min-width:28px;">局${si+1}</span>
+            <span style="font-weight:700;min-width:24px;text-align:center;${s.a > s.b ? 'color:var(--primary)':''}">${s.a}</span>
+            <span style="color:var(--gray-300)">:</span>
+            <span style="font-weight:700;min-width:24px;text-align:center;${s.b > s.a ? 'color:var(--primary)':''}">${s.b}</span>
+          </div>`).join('')}
+        <div style="display:flex;gap:4px;margin-top:4px;">
+          ${winA > winB ? '<span class="chip chip-green" style="font-size:.75rem;">A队胜</span>' : ''}
+          ${winB > winA ? '<span class="chip chip-green" style="font-size:.75rem;">B队胜</span>' : ''}
+          ${winA === winB && m.status === 'done' ? '<span class="chip chip-gray" style="font-size:.75rem;">平局</span>' : ''}
+        </div>
+      </div>`;
+    }
+  }
+
+  const scoreBtn = STATE.isAdmin
+    ? `<button class="btn btn-sky btn-sm" style="margin-top:8px;width:100%;" onclick="openScoreModal(${roundIdx},${mi})">
+        ${m.status === 'done' ? '✏️ 修改比分' : '📝 录入比分'}
+      </button>`
+    : '';
+
+  return `<div class="match-card">
+    <div class="match-header">
+      <span class="match-court">第 ${m.court} 场地</span>
+      ${statusChip}
+    </div>
+    <div class="match-body">
+      <div class="teams">
+        <div class="team">
+          <div class="team-players">${escHtml(teamANames)}</div>
+          <div style="font-size:.72rem;color:var(--sky);margin-top:2px;">A 队</div>
+        </div>
+        <div class="vs">VS</div>
+        <div class="team">
+          <div class="team-players">${escHtml(teamBNames)}</div>
+          <div style="font-size:.72rem;color:var(--accent);margin-top:2px;">B 队</div>
+        </div>
+      </div>
+      ${scoreHtml}
+      ${scoreBtn}
+    </div>
+  </div>`;
+}
+
+// =====================================================
+// 轮次切换
+// =====================================================
+function prevRound() {
+  if (STATE.currentRoundIdx > 0) {
+    STATE.currentRoundIdx--;
+    renderMatchPage();
+  }
+}
+function nextRound() {
+  if (STATE.currentRoundIdx < STATE.rounds.length - 1) {
+    STATE.currentRoundIdx++;
+    renderMatchPage();
+  }
+}
+
+// =====================================================
+// 比分录入
+// =====================================================
+function openScoreModal(roundIdx, matchIdx) {
+  if (!STATE.isAdmin) { requireAdmin(); return; }
+  const round = STATE.rounds[roundIdx];
+  const m = round.matches[matchIdx];
+  const getPlayer = id => STATE.players.find(p => p.id === id);
+  const teamANames = m.teamA.map(id => getPlayer(id)?.name || '?').join(' & ');
+  const teamBNames = m.teamB.map(id => getPlayer(id)?.name || '?').join(' & ');
+
+  document.getElementById('scoreModalTitle').textContent = `第 ${round.roundNum} 轮·场地 ${m.court}`;
+  STATE.scoreModalCtx = { roundIdx, matchIdx };
+
+  let setsHtml = '';
+  for (let s = 0; s < STATE.setsPerMatch; s++) {
+    const score = m.scores[s] || { a: 0, b: 0 };
+    const label = STATE.setsPerMatch > 1 ? `第 ${s+1} 局` : '';
+    setsHtml += `
+      <div style="margin-bottom:12px;">
+        ${label ? `<div style="font-size:.82rem;color:var(--gray-500);margin-bottom:6px;">${label}</div>` : ''}
+        <div class="score-input-row">
+          <div class="score-input">
+            <label>${escHtml(teamANames)}</label>
+            <div class="score-input-stepper">
+              <button onclick="adjScore(${s},'a',-1)">－</button>
+              <div class="score-val" id="sv_${s}_a">${score.a}</div>
+              <button onclick="adjScore(${s},'a',1)">＋</button>
+            </div>
+          </div>
+          <div style="font-size:1.2rem;color:var(--gray-300);font-weight:300;margin-top:16px;">:</div>
+          <div class="score-input">
+            <label>${escHtml(teamBNames)}</label>
+            <div class="score-input-stepper">
+              <button onclick="adjScore(${s},'b',-1)">－</button>
+              <div class="score-val" id="sv_${s}_b">${score.b}</div>
+              <button onclick="adjScore(${s},'b',1)">＋</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  setsHtml += `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+    <input type="checkbox" id="markDone" ${m.status === 'done' ? 'checked' : ''} style="width:16px;height:16px;">
+    <label for="markDone" style="font-size:.88rem;">标记为已完成</label>
+  </div>`;
+
+  document.getElementById('scoreModalBody').innerHTML = setsHtml;
+  openModal('scoreModal');
+}
+
+// 临时分数存储（模态框中操作）
+const _tempScores = {};
+function adjScore(setIdx, team, delta) {
+  const key = `${setIdx}_${team}`;
+  const el = document.getElementById(`sv_${setIdx}_${team}`);
+  if (!el) return;
+  const ctx = STATE.scoreModalCtx;
+  const m = STATE.rounds[ctx.roundIdx].matches[ctx.matchIdx];
+  if (!_tempScores[ctx.roundIdx]) _tempScores[ctx.roundIdx] = {};
+  if (!_tempScores[ctx.roundIdx][ctx.matchIdx]) {
+    _tempScores[ctx.roundIdx][ctx.matchIdx] = m.scores.map(s => ({...s}));
+  }
+  const scores = _tempScores[ctx.roundIdx][ctx.matchIdx];
+  scores[setIdx][team] = Math.max(0, (scores[setIdx][team] ?? 0) + delta);
+  el.textContent = scores[setIdx][team];
+}
+
+function saveScore() {
+  const ctx = STATE.scoreModalCtx;
+  if (!ctx) return;
+  const round = STATE.rounds[ctx.roundIdx];
+  const m = round.matches[ctx.matchIdx];
+
+  // 从 DOM 读取分数
+  for (let s = 0; s < STATE.setsPerMatch; s++) {
+    const aEl = document.getElementById(`sv_${s}_a`);
+    const bEl = document.getElementById(`sv_${s}_b`);
+    if (aEl && bEl) {
+      m.scores[s] = {
+        a: parseInt(aEl.textContent) || 0,
+        b: parseInt(bEl.textContent) || 0,
+      };
+    }
+  }
+
+  const markDone = document.getElementById('markDone')?.checked;
+  const prevStatus = m.status;
+  m.status = markDone ? 'done' : 'playing';
+
+  // 如果比赛完成，更新人员统计
+  if (markDone && prevStatus !== 'done') {
+    const winA = m.scores.filter(s => s.a > s.b).length;
+    const winB = m.scores.filter(s => s.b > s.a).length;
+    const totalA = m.scores.reduce((acc, s) => acc + s.a, 0);
+    const totalB = m.scores.reduce((acc, s) => acc + s.b, 0);
+
+    m.teamA.forEach(id => {
+      const p = STATE.players.find(x => x.id === id);
+      if (p) {
+        p.totalGames = (p.totalGames || 0) + 1;
+        if (winA > winB) p.wins = (p.wins || 0) + 1;
+        p.points = (p.points || 0) + totalA;
+      }
+    });
+    m.teamB.forEach(id => {
+      const p = STATE.players.find(x => x.id === id);
+      if (p) {
+        p.totalGames = (p.totalGames || 0) + 1;
+        if (winB > winA) p.wins = (p.wins || 0) + 1;
+        p.points = (p.points || 0) + totalB;
+      }
+    });
+  }
+
+  pushToFirebase();
+  closeModal('scoreModal');
+  renderMatchPage();
+  renderPlayers();
+  showToast('✅ 比分已保存');
+}
+
+// =====================================================
+// 统计页
+// =====================================================
+function renderStats() {
+  renderOverview();
+  renderStatTable();
+  renderHistory();
+}
+
+function renderOverview() {
+  if (STATE.rounds.length === 0) return;
+  const totalRounds = STATE.rounds.length;
+  const totalMatches = STATE.rounds.reduce((acc, r) => acc + r.matches.length, 0);
+  const doneMatches = STATE.rounds.reduce((acc, r) => acc + r.matches.filter(m => m.status === 'done').length, 0);
+  const progress = totalMatches > 0 ? Math.round(doneMatches / totalMatches * 100) : 0;
+  const sel = getSelectedPlayers().length;
+
+  document.getElementById('overviewContent').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="text-align:center;padding:10px;background:var(--primary-light);border-radius:10px;">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--primary)">${totalRounds}</div>
+        <div style="font-size:.78rem;color:var(--primary-dark)">已打轮次</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--accent-light);border-radius:10px;">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--accent)">${sel}</div>
+        <div style="font-size:.78rem;color:#c2410c">参赛人数</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--sky-light);border-radius:10px;">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--sky)">${totalMatches}</div>
+        <div style="font-size:.78rem;color:#0369a1">总场次</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--gray-100);border-radius:10px;">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--gray-700)">${doneMatches}</div>
+        <div style="font-size:.78rem;color:var(--gray-500)">已完成场次</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--gray-500);margin-bottom:4px;">
+        <span>比赛进度</span><span>${progress}%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+    </div>`;
+}
+
+function renderStatTable() {
+  const tbody = document.getElementById('statsTbody');
+  const players = STATE.players.filter(p => p.selected || p.totalGames > 0);
+  if (players.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>';
+    return;
+  }
+
+  const sorted = [...players].sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return b.points - a.points;
+  });
+
+  tbody.innerHTML = sorted.map((p, i) => {
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+    const winRate = p.totalGames > 0 ? Math.round(p.wins / p.totalGames * 100) : 0;
+    return `<tr>
+      <td class="stat-rank ${rankClass}">${rankIcon}</td>
+      <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+      <td>${p.totalGames}</td>
+      <td>${p.wins}<small style="color:var(--gray-400);"> (${winRate}%)</small></td>
+      <td>${p.points}</td>
+      <td>${p.waitRounds}轮</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderHistory() {
+  const container = document.getElementById('historyList');
+  if (STATE.rounds.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">📋</div><p>比赛开始后显示历史记录</p></div>';
+    return;
+  }
+  const getPlayer = id => STATE.players.find(p => p.id === id);
+
+  container.innerHTML = STATE.rounds.map(round => {
+    const matchSummary = round.matches.map(m => {
+      const aN = m.teamA.map(id => getPlayer(id)?.name || '?').join('/');
+      const bN = m.teamB.map(id => getPlayer(id)?.name || '?').join('/');
+      const scoreStr = m.scores.map(s => `${s.a}:${s.b}`).join(' ');
+      const statusIcon = m.status === 'done' ? '✅' : '🟡';
+      return `<div style="padding:5px 0;border-bottom:1px solid var(--gray-100);font-size:.82rem;">
+        ${statusIcon} <b>场地${m.court}</b>：${escHtml(aN)} vs ${escHtml(bN)}
+        <span style="color:var(--gray-500);float:right;">${scoreStr || '未录入'}</span>
+      </div>`;
+    }).join('');
+
+    const waitNames = round.waiting?.map(id => getPlayer(id)?.name || '?').join('、') || '无';
+
+    return `<details style="margin-bottom:8px;">
+      <summary style="cursor:pointer;padding:8px;background:var(--gray-50);border-radius:8px;font-weight:600;font-size:.88rem;list-style:none;display:flex;justify-content:space-between;align-items:center;">
+        <span>第 ${round.roundNum} 轮</span>
+        <span style="color:var(--gray-400);font-size:.75rem;">${new Date(round.timestamp).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span>
+      </summary>
+      <div style="padding:8px;background:white;border-radius:0 0 8px 8px;border:1px solid var(--gray-100);">
+        ${matchSummary}
+        <div style="font-size:.78rem;color:var(--gray-400);margin-top:6px;">休息：${escHtml(waitNames)}</div>
+      </div>
+    </details>`;
+  }).reverse().join('');
+}
+
+// =====================================================
+// 管理员
+// =====================================================
+function requireAdmin() {
+  if (STATE.isAdmin) return true;
+  openModal('adminModal');
+  return false;
+}
+
+function toggleAdmin() {
+  if (STATE.isAdmin) {
+    STATE.isAdmin = false;
+    document.getElementById('adminToggleBtn').textContent = '🔑 管理';
+    showToast('已退出管理员模式');
+    renderMatchPage();
+    return;
+  }
+  openModal('adminModal');
+}
+
+function verifyAdmin() {
+  const input = document.getElementById('adminPwdInput').value;
+  if (input === STATE.adminPwd) {
+    STATE.isAdmin = true;
+    document.getElementById('adminToggleBtn').textContent = '🔓 退出管理';
+    document.getElementById('adminError').style.display = 'none';
+    document.getElementById('adminPwdInput').value = '';
+    closeModal('adminModal');
+    showToast('✅ 管理员模式已开启');
+    renderMatchPage();
+  } else {
+    document.getElementById('adminError').style.display = 'block';
+    document.getElementById('adminPwdInput').value = '';
+  }
+}
+
+function openPwdModal() {
+  if (!STATE.isAdmin) { requireAdmin(); return; }
+  document.getElementById('newPwd1').value = '';
+  document.getElementById('newPwd2').value = '';
+  document.getElementById('pwdError').style.display = 'none';
+  openModal('pwdModal');
+}
+
+function savePwd() {
+  const p1 = document.getElementById('newPwd1').value;
+  const p2 = document.getElementById('newPwd2').value;
+  const errEl = document.getElementById('pwdError');
+  if (!p1 || p1.length < 4) {
+    errEl.textContent = '密码至少 4 位'; errEl.style.display = 'block'; return;
+  }
+  if (p1 !== p2) {
+    errEl.textContent = '两次密码不一致'; errEl.style.display = 'block'; return;
+  }
+  STATE.adminPwd = p1;
+  closeModal('pwdModal');
+  pushToFirebase();
+  showToast('✅ 密码已修改');
+}
+
+// =====================================================
+// 模态框
+// =====================================================
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// =====================================================
+// 工具
+// =====================================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// =====================================================
+// 全量渲染（Firebase 同步后调用）
+// =====================================================
+function renderAll() {
+  renderPlayers();
+  document.getElementById('courtsVal').textContent = STATE.courts;
+  document.getElementById('modeDouble').classList.toggle('active', STATE.mode === 'double');
+  document.getElementById('modeMixed').classList.toggle('active', STATE.mode === 'mixed');
+  document.getElementById('sets1').classList.toggle('active', STATE.setsPerMatch === 1);
+  document.getElementById('sets3').classList.toggle('active', STATE.setsPerMatch === 3);
+
+  const activePage = document.querySelector('.page.active')?.id;
+  if (activePage === 'page-match') renderMatchPage();
+  if (activePage === 'page-stats') renderStats();
+
+  if (STATE.rounds.length > 0) {
+    document.getElementById('dotMatch').style.display = 'inline-block';
+  }
+}
+
+// 点击 overlay 关闭弹窗
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeModal(overlay.id);
+  });
+});
+
+// 初始渲染
+renderPlayers();
+</script>
+</body>
+</html>
