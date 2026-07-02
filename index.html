@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>一拍赛事</title>
+  <title>羽毛球轮转赛</title>
   <style>
     /* ===== 全局 ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -283,15 +283,35 @@
       font-size: .6rem;
       color: var(--accent);
     }
+    .player-chip .player-level {
+      font-size: .68rem;
+      color: var(--sky);
+      font-weight: 700;
+      margin-top: 1px;
+    }
+    .player-chip .player-edit-btn {
+      position: absolute;
+      top: 2px; left: 4px;
+      font-size: .68rem;
+      color: var(--gray-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 2px 3px;
+      line-height: 1;
+    }
+    .player-chip .player-edit-btn:hover { color: var(--sky); }
 
     /* 添加人员输入 */
     .add-player-row {
       display: flex;
       gap: 8px;
       margin-bottom: 12px;
+      flex-wrap: wrap;
     }
     .add-player-row input {
       flex: 1;
+      min-width: 90px;
       padding: 9px 12px;
       border: 1.5px solid var(--gray-300);
       border-radius: 10px;
@@ -300,6 +320,19 @@
       transition: border-color .2s;
     }
     .add-player-row input:focus { border-color: var(--primary); }
+    .level-select {
+      flex-shrink: 0;
+      width: 82px;
+      padding: 9px 6px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: .85rem;
+      outline: none;
+      background: white;
+      color: var(--gray-700);
+      font-family: inherit;
+    }
+    .level-select:focus { border-color: var(--primary); }
     .add-player-row textarea {
       flex: 1;
       padding: 9px 12px;
@@ -494,7 +527,7 @@
       box-shadow: 0 20px 40px rgba(0,0,0,.2);
     }
     .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
-    .modal input {
+    .modal input, .modal select {
       width: 100%;
       padding: 10px 12px;
       border: 1.5px solid var(--gray-300);
@@ -502,8 +535,13 @@
       font-size: 1rem;
       outline: none;
       margin-bottom: 12px;
+      font-family: inherit;
+      color: var(--gray-900);
+      background: white;
     }
-    .modal input:focus { border-color: var(--primary); }
+    .modal input:focus, .modal select:focus { border-color: var(--primary); }
+    .modal-field-label { font-size: .78rem; color: var(--gray-500); margin-bottom: 4px; font-weight: 600; }
+    .modal-delete-row { margin-top: 4px; margin-bottom: 12px; text-align: right; }
     .modal-btns { display: flex; gap: 8px; }
     .modal-btns .btn { flex: 1; }
 
@@ -611,7 +649,7 @@
 
 <!-- 顶部栏 -->
 <div class="top-bar">
-  <h1>🏸 一拍赛事</h1>
+  <h1>🏸 羽毛球轮转赛</h1>
   <div style="display:flex;align-items:center;gap:8px;">
     <span class="conn-dot" id="connDot"></span>
     <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdmin()">🔑 管理</button>
@@ -664,6 +702,16 @@
     </div>
     <div class="setting-row">
       <div>
+        <div class="setting-label">水平均衡</div>
+        <div class="setting-desc">排阵时兼顾选手等级，让对阵双方实力更接近</div>
+      </div>
+      <div class="toggle-group">
+        <button id="balanceOn" class="active" onclick="setBalanceLevel(true)">开启</button>
+        <button id="balanceOff" onclick="setBalanceLevel(false)">关闭</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
         <div class="setting-label">比赛总轮数</div>
         <div class="setting-desc" id="roundsDesc">开始时一次性生成所有轮次对阵</div>
         <div id="roundsSuggest" style="margin-top:5px;display:none;">
@@ -696,9 +744,9 @@
 
     <!-- 批量导入 -->
     <details style="margin-bottom:12px;">
-      <summary style="font-size:.85rem;color:var(--sky);cursor:pointer;user-select:none;">📋 批量导入（每行一个名字）</summary>
+      <summary style="font-size:.85rem;color:var(--sky);cursor:pointer;user-select:none;">📋 批量导入（每行一个名字，可选性别/等级）</summary>
       <div class="add-player-row" style="margin-top:8px;flex-direction:column;">
-        <textarea id="batchInput" placeholder="张三&#10;李四&#10;王五&#10;..."></textarea>
+        <textarea id="batchInput" placeholder="张三&#10;李四,女&#10;王五,男,4&#10;赵六,女,2.5&#10;格式：姓名,性别(男/女),等级(1-5，可选)"></textarea>
         <div style="display:flex;gap:8px;margin-top:6px;">
           <button class="btn btn-outline btn-sm" onclick="batchImport()">导入</button>
           <button class="btn btn-outline btn-sm" onclick="clearAllPlayers()">清空全部</button>
@@ -714,6 +762,17 @@
         <button id="gM" class="active" onclick="selectGender('M')">♂ 男</button>
         <button id="gF" onclick="selectGender('F')">♀ 女</button>
       </div>
+      <select id="newPlayerLevel" class="level-select" title="羽毛球水平等级">
+        <option value="1">Lv1 新手</option>
+        <option value="1.5">Lv1.5</option>
+        <option value="2">Lv2 初级</option>
+        <option value="2.5">Lv2.5</option>
+        <option value="3" selected>Lv3 中级</option>
+        <option value="3.5">Lv3.5</option>
+        <option value="4">Lv4 中高级</option>
+        <option value="4.5">Lv4.5</option>
+        <option value="5">Lv5 高级</option>
+      </select>
       <button class="btn btn-primary btn-sm" onclick="addPlayer()">添加</button>
     </div>
 
@@ -787,11 +846,11 @@
     <table class="stat-table">
       <thead>
         <tr>
-          <th>排名</th><th>姓名</th><th>场次</th><th>胜场</th><th>得分</th><th>等待</th>
+          <th>排名</th><th>姓名</th><th>等级</th><th>场次</th><th>胜场</th><th>得分</th><th>等待</th>
         </tr>
       </thead>
       <tbody id="statsTbody">
-        <tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>
       </tbody>
     </table>
   </div>
@@ -831,6 +890,39 @@
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('pwdModal')">取消</button>
       <button class="btn btn-primary" onclick="savePwd()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑球员弹窗 -->
+<div class="modal-overlay" id="editPlayerModal">
+  <div class="modal">
+    <div class="modal-title">✎ 编辑选手</div>
+    <div class="modal-field-label">姓名</div>
+    <input type="text" id="editPlayerName" maxlength="8" />
+    <div class="modal-field-label">性别</div>
+    <div id="editPlayerGender" class="toggle-group" style="margin-bottom:12px;">
+      <button id="egM" class="active" onclick="selectEditGender('M')">♂ 男</button>
+      <button id="egF" onclick="selectEditGender('F')">♀ 女</button>
+    </div>
+    <div class="modal-field-label">羽毛球等级</div>
+    <select id="editPlayerLevel">
+      <option value="1">Lv1 新手</option>
+      <option value="1.5">Lv1.5</option>
+      <option value="2">Lv2 初级</option>
+      <option value="2.5">Lv2.5</option>
+      <option value="3">Lv3 中级</option>
+      <option value="3.5">Lv3.5</option>
+      <option value="4">Lv4 中高级</option>
+      <option value="4.5">Lv4.5</option>
+      <option value="5">Lv5 高级</option>
+    </select>
+    <div class="modal-delete-row">
+      <button class="btn btn-danger btn-sm" onclick="deletePlayerFromEdit()">🗑 删除此选手</button>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('editPlayerModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveEditPlayer()">保存</button>
     </div>
   </div>
 </div>
@@ -936,12 +1028,17 @@ const STATE = {
   totalRounds: 6,       // 预设总轮数
   adminPwd: 'admin123', // 默认密码
   isAdmin: false,
-  players: [],          // [{id, name, gender, totalGames, wins, waitRounds, points, lastPlayedRound}]
+  balanceLevel: true,   // 排阵时是否考虑水平均衡
+  // players: [{id, name, gender, level, totalGames, wins, waitRounds, points,
+  //            lastPlayedRound, partners:{pid:count}, opponents:{pid:count}}]
+  players: [],
   rounds: [],           // [{id, matches:[{court, teamA, teamB, scores, status}], waiting:[], timestamp}]
   currentRoundIdx: 0,   // 当前查看的轮次
   activeRound: 0,       // 当前最新轮次索引
   scoreModalCtx: null,  // {roundIdx, matchIdx}
+  editPlayerId: null,   // 当前正在编辑的选手 id
   _syncing: false,      // 防止 Firebase 回调覆盖本地写入
+  _rotation: null,      // 生成对阵时用的轮转顺序（临时，不落盘）
 };
 
 // 临时选中的新增人员性别
@@ -962,6 +1059,7 @@ window.syncFromRemote = function(data) {
       setsPerMatch: data.settings.setsPerMatch ?? STATE.setsPerMatch,
       totalRounds: data.settings.totalRounds ?? STATE.totalRounds,
       adminPwd: data.settings.adminPwd ?? STATE.adminPwd,
+      balanceLevel: data.settings.balanceLevel ?? STATE.balanceLevel,
     });
   }
   // 同步人员
@@ -997,6 +1095,7 @@ function pushToFirebase() {
       setsPerMatch: STATE.setsPerMatch,
       totalRounds: STATE.totalRounds,
       adminPwd: STATE.adminPwd,
+      balanceLevel: STATE.balanceLevel,
     });
     const playersObj = {};
     STATE.players.forEach(p => { playersObj[p.id] = p; });
@@ -1125,6 +1224,12 @@ function setSets(n) {
   document.getElementById('sets3').classList.toggle('active', n === 3);
 }
 
+function setBalanceLevel(on) {
+  STATE.balanceLevel = on;
+  document.getElementById('balanceOn').classList.toggle('active', on);
+  document.getElementById('balanceOff').classList.toggle('active', !on);
+}
+
 // =====================================================
 // 人员管理
 // =====================================================
@@ -1143,16 +1248,20 @@ function addPlayer() {
   const name = inp.value.trim();
   if (!name) { showToast('请输入姓名'); return; }
   if (STATE.players.find(p => p.name === name)) { showToast('已有同名人员'); return; }
+  const level = parseFloat(document.getElementById('newPlayerLevel').value) || 3;
   STATE.players.push({
     id: genId(),
     name,
     gender: newPlayerGenderVal,
+    level,
     selected: true,
     totalGames: 0,
     wins: 0,
     waitRounds: 0,
     points: 0,
     lastPlayedRound: -1,
+    partners: {},
+    opponents: {},
   });
   inp.value = '';
   inp.focus();
@@ -1165,7 +1274,7 @@ function batchImport() {
   const lines = document.getElementById('batchInput').value.trim().split('\n');
   let added = 0;
   lines.forEach(line => {
-    // 支持格式：姓名 或 姓名,性别(M/F/男/女)
+    // 支持格式：姓名 或 姓名,性别(M/F/男/女) 或 姓名,性别,等级(1-5)
     const parts = line.trim().split(/[,，\s]+/);
     const name = parts[0];
     if (!name) return;
@@ -1175,9 +1284,15 @@ function batchImport() {
       const g = parts[1].toUpperCase();
       if (g === 'F' || g === '女') gender = 'F';
     }
+    let level = 3;
+    if (parts[2]) {
+      const lv = parseFloat(parts[2]);
+      if (!isNaN(lv)) level = Math.min(5, Math.max(1, lv));
+    }
     STATE.players.push({
-      id: genId(), name, gender, selected: true,
+      id: genId(), name, gender, level, selected: true,
       totalGames: 0, wins: 0, waitRounds: 0, points: 0, lastPlayedRound: -1,
+      partners: {}, opponents: {},
     });
     added++;
   });
@@ -1194,6 +1309,54 @@ function clearAllPlayers() {
   renderPlayers();
   updatePlayerCount();
   pushToFirebase();
+}
+
+// 临时选中的编辑弹窗性别
+let editPlayerGenderVal = 'M';
+
+function selectEditGender(g) {
+  editPlayerGenderVal = g;
+  document.getElementById('egM').classList.toggle('active', g === 'M');
+  document.getElementById('egF').classList.toggle('active', g === 'F');
+}
+
+function openEditPlayer(id) {
+  const p = STATE.players.find(x => x.id === id);
+  if (!p) return;
+  STATE.editPlayerId = id;
+  document.getElementById('editPlayerName').value = p.name;
+  editPlayerGenderVal = p.gender || 'M';
+  document.getElementById('egM').classList.toggle('active', editPlayerGenderVal === 'M');
+  document.getElementById('egF').classList.toggle('active', editPlayerGenderVal === 'F');
+  document.getElementById('editPlayerLevel').value = String(p.level || 3);
+  openModal('editPlayerModal');
+}
+
+function saveEditPlayer() {
+  const p = STATE.players.find(x => x.id === STATE.editPlayerId);
+  if (!p) { closeModal('editPlayerModal'); return; }
+  const name = document.getElementById('editPlayerName').value.trim();
+  if (!name) { showToast('请输入姓名'); return; }
+  if (STATE.players.find(x => x.name === name && x.id !== p.id)) { showToast('已有同名人员'); return; }
+  p.name = name;
+  p.gender = editPlayerGenderVal;
+  p.level = parseFloat(document.getElementById('editPlayerLevel').value) || 3;
+  closeModal('editPlayerModal');
+  renderPlayers();
+  pushToFirebase();
+  showToast('✅ 已保存');
+}
+
+function deletePlayerFromEdit() {
+  const p = STATE.players.find(x => x.id === STATE.editPlayerId);
+  if (!p) return;
+  if (!confirm(`确定删除选手「${p.name}」？`)) return;
+  STATE.players = STATE.players.filter(x => x.id !== p.id);
+  closeModal('editPlayerModal');
+  renderPlayers();
+  updatePlayerCount();
+  pushToFirebase();
+  showToast('已删除');
 }
 
 function togglePlayerSelect(id) {
@@ -1244,9 +1407,12 @@ function renderPlayers() {
     const playClass = playing ? 'playing' : '';
     const genderIcon = p.gender === 'F' ? '♀' : '♂';
     const modeShow = STATE.mode === 'mixed' ? `<div class="player-count">${genderIcon}</div>` : '';
+    const lvl = p.level || 3;
     return `<div class="player-chip ${selClass} ${playClass}" onclick="togglePlayerSelect('${p.id}')">
+      <button class="player-edit-btn" onclick="event.stopPropagation();openEditPlayer('${p.id}')" title="编辑">✎</button>
       <div class="player-name">${escHtml(p.name)}</div>
       ${modeShow}
+      <div class="player-level">Lv${lvl}</div>
       <div class="player-count">打${p.totalGames}场</div>
     </div>`;
   }).join('');
@@ -1270,118 +1436,235 @@ function shuffle(arr) {
   return a;
 }
 
+function getPlayerById(id) {
+  return STATE.players.find(p => p.id === id);
+}
+
 /**
- * 公平排队：优先让等待轮次多的人上场，其次是打的场次少的人
+ * 滑动窗口轮转：把 order（固定顺序的 id 数组）看作一个环，
+ * 每一轮把窗口向后滑动 1 位，取窗口内的人上场。
+ * 这样保证：① 每个人在长期内上场次数完全均匀；
+ *          ② 相邻两轮的上场人员只替换一小部分，逐步轮换，
+ *             不会出现"总是同样那几个人一组、永远碰不到另一批人"的情况。
  */
-function fairSort(players, roundIdx) {
-  return [...players].sort((a, b) => {
-    // 等待轮次多的优先
-    const waitDiff = b.waitRounds - a.waitRounds;
-    if (waitDiff !== 0) return waitDiff;
-    // 打的场次少的优先
-    const gameDiff = a.totalGames - b.totalGames;
-    if (gameDiff !== 0) return gameDiff;
-    // 上次打球越早优先（距离现在越久）
-    const lastDiff = a.lastPlayedRound - b.lastPlayedRound;
-    if (lastDiff !== 0) return lastDiff;
-    // 随机打乱同等优先级
-    return Math.random() - 0.5;
-  });
+function slidingWindow(order, windowSize, roundIdx) {
+  const n = order.length;
+  if (windowSize >= n) {
+    return { inWindow: [...order], rest: [] };
+  }
+  const inWindow = [];
+  for (let i = 0; i < windowSize; i++) {
+    inWindow.push(order[(roundIdx + i) % n]);
+  }
+  const inSet = new Set(inWindow);
+  const rest = order.filter(id => !inSet.has(id));
+  return { inWindow, rest };
+}
+
+/**
+ * 初始化本次比赛的轮转顺序（开始比赛时调用一次，整个比赛过程中保持不变）
+ */
+function initRotation() {
+  const players = getSelectedPlayers();
+  if (STATE.mode === 'mixed') {
+    STATE._rotation = {
+      orderM: shuffle(players.filter(p => p.gender === 'M')).map(p => p.id),
+      orderF: shuffle(players.filter(p => p.gender === 'F')).map(p => p.id),
+    };
+  } else {
+    STATE._rotation = {
+      order: shuffle(players).map(p => p.id),
+    };
+  }
+}
+
+function levelOf(p) {
+  return p.level || 3;
+}
+
+function pairCount(p1, p2, type) {
+  return (p1 && p1[type] && p1[type][p2.id]) || 0;
+}
+
+/**
+ * 计算一种分队方案的"代价"：等级越不均衡、搭档/对手重复次数越多，代价越高。
+ * 生成对阵时会在多种方案里选代价最低（或接近最低、带一点随机性）的方案。
+ */
+function teamCost(teamA, teamB) {
+  let cost = 0;
+  if (STATE.balanceLevel) {
+    const lvlA = teamA.reduce((s, p) => s + levelOf(p), 0);
+    const lvlB = teamB.reduce((s, p) => s + levelOf(p), 0);
+    cost += Math.abs(lvlA - lvlB) * 3;
+  }
+  // 同队搭档重复的惩罚（权重较高，尽量让搭档常换常新）
+  cost += pairCount(teamA[0], teamA[1], 'partners') * 6;
+  cost += pairCount(teamB[0], teamB[1], 'partners') * 6;
+  // 对手重复的惩罚
+  teamA.forEach(a => teamB.forEach(b => {
+    cost += pairCount(a, b, 'opponents') * 2;
+  }));
+  return cost;
+}
+
+/**
+ * 给定同一片场地上的 4 人（自由双打），从 3 种分队方式里选出代价最低的一种
+ */
+function bestTeamSplit(group) {
+  const [a, b, c, d] = group;
+  const splits = shuffle([
+    { teamA: [a, b], teamB: [c, d] },
+    { teamA: [a, c], teamB: [b, d] },
+    { teamA: [a, d], teamB: [b, c] },
+  ]);
+  splits.forEach(s => { s.cost = teamCost(s.teamA, s.teamB); });
+  splits.sort((x, y) => x.cost - y.cost);
+  return splits[0];
+}
+
+/**
+ * 给定同一片场地上的 2 男 2 女（混双），从 2 种配对方式里选出代价最低的一种
+ */
+function bestMixedSplit(males, females) {
+  const [m1, m2] = males, [f1, f2] = females;
+  const splits = shuffle([
+    { teamA: [m1, f1], teamB: [m2, f2] },
+    { teamA: [m1, f2], teamB: [m2, f1] },
+  ]);
+  splits.forEach(s => { s.cost = teamCost(s.teamA, s.teamB); });
+  splits.sort((x, y) => x.cost - y.cost);
+  return splits[0];
+}
+
+/**
+ * 把上场的人分配到各片场地（自由双打）。
+ * 多次随机尝试分组，取总代价最低的一种分法，兼顾等级均衡与搭档多样性。
+ */
+function assignCourts(players, courts) {
+  if (courts <= 1) return [players];
+  let best = null, bestCost = Infinity;
+  const attempts = 30;
+  for (let a = 0; a < attempts; a++) {
+    const shuffled = shuffle(players);
+    const groups = [];
+    for (let c = 0; c < courts; c++) groups.push(shuffled.slice(c * 4, c * 4 + 4));
+    const cost = groups.reduce((sum, g) => sum + bestTeamSplit(g).cost, 0);
+    if (cost < bestCost) { bestCost = cost; best = groups; }
+  }
+  return best;
+}
+
+/**
+ * 把上场的男/女分配到各片场地（混双）
+ */
+function assignMixedCourts(mPlayers, fPlayers, courts) {
+  if (courts <= 1) return [{ males: mPlayers, females: fPlayers }];
+  let best = null, bestCost = Infinity;
+  const attempts = 30;
+  for (let a = 0; a < attempts; a++) {
+    const sm = shuffle(mPlayers), sf = shuffle(fPlayers);
+    const groups = [];
+    for (let c = 0; c < courts; c++) {
+      groups.push({ males: sm.slice(c * 2, c * 2 + 2), females: sf.slice(c * 2, c * 2 + 2) });
+    }
+    const cost = groups.reduce((sum, g) => sum + bestMixedSplit(g.males, g.females).cost, 0);
+    if (cost < bestCost) { bestCost = cost; best = groups; }
+  }
+  return best;
+}
+
+/**
+ * 记录搭档/对手历史，供后续轮次的分队决策使用
+ */
+function recordHistory(teamA, teamB) {
+  const bump = (p, other, type) => {
+    p[type] = p[type] || {};
+    p[type][other.id] = (p[type][other.id] || 0) + 1;
+  };
+  bump(teamA[0], teamA[1], 'partners'); bump(teamA[1], teamA[0], 'partners');
+  bump(teamB[0], teamB[1], 'partners'); bump(teamB[1], teamB[0], 'partners');
+  teamA.forEach(a => teamB.forEach(b => { bump(a, b, 'opponents'); bump(b, a, 'opponents'); }));
+}
+
+function makeMatch(court, teamA, teamB) {
+  return {
+    id: genId(),
+    court,
+    teamA: teamA.map(p => p.id),
+    teamB: teamB.map(p => p.id),
+    scores: Array.from({ length: STATE.setsPerMatch }, () => ({ a: 0, b: 0 })),
+    status: 'playing', // 'playing' | 'done'
+  };
 }
 
 /**
  * 生成一轮对阵
  */
 function generateRound(roundIdx) {
-  const courts = STATE.courts;
-  const mode = STATE.mode;
   const players = getSelectedPlayers();
-
   if (players.length < 4) {
     showToast('至少需要 4 名参赛选手');
     return null;
   }
+  const courts = Math.min(STATE.courts, Math.floor(players.length / 4));
+  if (courts < 1) {
+    showToast('人数不足以开一片场地（至少需要 4 人）');
+    return null;
+  }
 
-  // 按公平排序
-  const sorted = fairSort(players, roundIdx);
-
-  let scheduled = []; // 上场的人 id 列表
   const matches = [];
+  let waitingIds = [];
 
-  if (mode === 'double') {
-    // 自由双打：前 courts*4 人上场
-    const onCourt = sorted.slice(0, courts * 4);
-    const waiting = sorted.slice(courts * 4);
-    const shuffled = shuffle(onCourt);
-
-    for (let c = 0; c < courts && shuffled.length >= 4; c++) {
-      const group = shuffled.splice(0, 4);
-      // 随机分两队
-      const pair = shuffle(group);
-      matches.push({
-        id: genId(),
-        court: c + 1,
-        teamA: [pair[0].id, pair[1].id],
-        teamB: [pair[2].id, pair[3].id],
-        scores: Array.from({length: STATE.setsPerMatch}, () => ({a: 0, b: 0})),
-        status: 'playing', // 'playing' | 'done'
-      });
-      scheduled.push(...group.map(p => p.id));
+  if (STATE.mode === 'mixed' && STATE._rotation && STATE._rotation.orderM) {
+    // 每完成一整轮循环（所有人都轮空过一次）就重新洗牌顺序，
+    // 避免"位置相对固定"导致某些人永远排不到同一轮
+    if (roundIdx > 0 && STATE._rotation.orderM.length > 0 && roundIdx % STATE._rotation.orderM.length === 0) {
+      STATE._rotation.orderM = shuffle(STATE._rotation.orderM);
+    }
+    if (roundIdx > 0 && STATE._rotation.orderF.length > 0 && roundIdx % STATE._rotation.orderF.length === 0) {
+      STATE._rotation.orderF = shuffle(STATE._rotation.orderF);
     }
 
-    return {
-      id: genId(),
-      roundNum: roundIdx + 1,
-      matches,
-      waiting: waiting.map(p => p.id),
-      timestamp: Date.now(),
-    };
+    const slotsPerGender = courts * 2;
+    const { inWindow: mIn, rest: mRest } = slidingWindow(STATE._rotation.orderM, slotsPerGender, roundIdx);
+    const { inWindow: fIn, rest: fRest } = slidingWindow(STATE._rotation.orderF, slotsPerGender, roundIdx);
+    const mPlayers = mIn.map(getPlayerById);
+    const fPlayers = fIn.map(getPlayerById);
+
+    const courtGroups = assignMixedCourts(mPlayers, fPlayers, courts);
+    courtGroups.forEach((g, idx) => {
+      const split = bestMixedSplit(g.males, g.females);
+      matches.push(makeMatch(idx + 1, split.teamA, split.teamB));
+      recordHistory(split.teamA, split.teamB);
+    });
+    waitingIds = [...mRest, ...fRest];
 
   } else {
-    // 混双：每队一男一女
-    const males = sorted.filter(p => p.gender === 'M');
-    const females = sorted.filter(p => p.gender === 'F');
-
-    if (males.length < courts * 2 || females.length < courts * 2) {
-      // 男女数量不足时，允许同性搭档，退化为自由双打
-      showToast('男女数量不足以凑满混双，已自动调整');
-      STATE.mode = 'double';
-      document.getElementById('modeDouble').classList.add('active');
-      document.getElementById('modeMixed').classList.remove('active');
-      return generateRound(roundIdx);
+    // 每完成一整轮循环就重新洗牌顺序，理由同上
+    if (roundIdx > 0 && STATE._rotation.order.length > 0 && roundIdx % STATE._rotation.order.length === 0) {
+      STATE._rotation.order = shuffle(STATE._rotation.order);
     }
 
-    const mOnCourt = males.slice(0, courts * 2);
-    const fOnCourt = females.slice(0, courts * 2);
-    const mWait = males.slice(courts * 2);
-    const fWait = females.slice(courts * 2);
+    const slots = courts * 4;
+    const { inWindow, rest } = slidingWindow(STATE._rotation.order, slots, roundIdx);
+    const onCourtPlayers = inWindow.map(getPlayerById);
 
-    const sm = shuffle(mOnCourt);
-    const sf = shuffle(fOnCourt);
-
-    for (let c = 0; c < courts; c++) {
-      const m1 = sm[c * 2], m2 = sm[c * 2 + 1];
-      const f1 = sf[c * 2], f2 = sf[c * 2 + 1];
-      matches.push({
-        id: genId(),
-        court: c + 1,
-        teamA: [m1.id, f1.id],
-        teamB: [m2.id, f2.id],
-        scores: Array.from({length: STATE.setsPerMatch}, () => ({a: 0, b: 0})),
-        status: 'playing',
-      });
-      scheduled.push(m1.id, f1.id, m2.id, f2.id);
-    }
-
-    const waitingAll = [...mWait, ...fWait];
-    return {
-      id: genId(),
-      roundNum: roundIdx + 1,
-      matches,
-      waiting: waitingAll.map(p => p.id),
-      timestamp: Date.now(),
-    };
+    const groups = assignCourts(onCourtPlayers, courts);
+    groups.forEach((g, idx) => {
+      const split = bestTeamSplit(g);
+      matches.push(makeMatch(idx + 1, split.teamA, split.teamB));
+      recordHistory(split.teamA, split.teamB);
+    });
+    waitingIds = rest;
   }
+
+  return {
+    id: genId(),
+    roundNum: roundIdx + 1,
+    matches,
+    waiting: waitingIds,
+    timestamp: Date.now(),
+  };
 }
 
 // =====================================================
@@ -1396,13 +1679,30 @@ function startTournament() {
   }
   if (!confirm(`确认开始比赛？将一次性生成 ${STATE.totalRounds} 轮对阵。`)) return;
 
-  // 重置统计
+  // 重置统计（包括搭档/对手历史，重新开始公平轮转）
   STATE.players.forEach(p => {
     p.totalGames = 0; p.wins = 0; p.waitRounds = 0; p.points = 0; p.lastPlayedRound = -1;
+    p.partners = {}; p.opponents = {};
   });
   STATE.rounds = [];
   STATE.activeRound = 0;
   STATE.currentRoundIdx = 0;
+
+  // 混双模式下若男女人数不足以排满场地，提前自动降级为自由双打，
+  // 避免生成过程中途切换模式导致前后轮次不一致
+  if (STATE.mode === 'mixed') {
+    const courts = Math.min(STATE.courts, Math.floor(sel.length / 4));
+    const males = sel.filter(p => p.gender === 'M').length;
+    const females = sel.filter(p => p.gender === 'F').length;
+    if (courts < 1 || males < courts * 2 || females < courts * 2) {
+      STATE.mode = 'double';
+      document.getElementById('modeDouble').classList.add('active');
+      document.getElementById('modeMixed').classList.remove('active');
+      showToast('男女数量不足以凑满混双，已自动切换为自由双打');
+    }
+  }
+
+  initRotation();
 
   // 一次性生成所有轮次
   for (let i = 0; i < STATE.totalRounds; i++) {
@@ -1798,7 +2098,7 @@ function renderStatTable() {
   const tbody = document.getElementById('statsTbody');
   const players = STATE.players.filter(p => p.selected || p.totalGames > 0);
   if (players.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>';
     return;
   }
 
@@ -1814,6 +2114,7 @@ function renderStatTable() {
     return `<tr>
       <td class="stat-rank ${rankClass}">${rankIcon}</td>
       <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+      <td>${p.level || 3}</td>
       <td>${p.totalGames}</td>
       <td>${p.wins}<small style="color:var(--gray-400);"> (${winRate}%)</small></td>
       <td>${p.points}</td>
@@ -1952,6 +2253,8 @@ function renderAll() {
   document.getElementById('modeMixed').classList.toggle('active', STATE.mode === 'mixed');
   document.getElementById('sets1').classList.toggle('active', STATE.setsPerMatch === 1);
   document.getElementById('sets3').classList.toggle('active', STATE.setsPerMatch === 3);
+  document.getElementById('balanceOn').classList.toggle('active', STATE.balanceLevel);
+  document.getElementById('balanceOff').classList.toggle('active', !STATE.balanceLevel);
 
   const activePage = document.querySelector('.page.active')?.id;
   if (activePage === 'page-match') renderMatchPage();
