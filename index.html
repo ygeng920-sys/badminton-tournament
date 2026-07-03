@@ -732,9 +732,16 @@
     <div class="setting-row">
       <div>
         <div class="setting-label">管理员密码</div>
-        <div class="setting-desc">输入比分需要此密码</div>
+        <div class="setting-desc">拥有全部管理权限（发起比赛、改设置、录比分等）</div>
       </div>
       <button class="btn btn-outline btn-sm" onclick="openPwdModal()">修改密码</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">临时计分密码</div>
+        <div class="setting-desc" id="tempPwdStatus">未设置 · 让帮忙计分的人无需管理员密码即可录入比分</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="openTempPwdModal()">设置</button>
     </div>
   </div>
 
@@ -869,10 +876,11 @@
 <!-- 管理员登录弹窗 -->
 <div class="modal-overlay" id="adminModal">
   <div class="modal">
-    <div class="modal-title">🔑 管理员登录</div>
-    <input type="password" id="adminPwdInput" placeholder="输入管理员密码"
+    <div class="modal-title">🔑 登录</div>
+    <input type="password" id="adminPwdInput" placeholder="输入管理员密码或临时计分密码"
            onkeydown="if(event.key==='Enter')verifyAdmin()" />
     <div id="adminError" style="color:var(--danger);font-size:.82rem;margin-bottom:8px;display:none;">密码错误</div>
+    <div style="font-size:.78rem;color:var(--gray-400);margin:-6px 0 12px;">💡 输入管理员密码可管理全部功能；输入临时密码仅可录入比分</div>
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('adminModal')">取消</button>
       <button class="btn btn-primary" onclick="verifyAdmin()">登录</button>
@@ -890,6 +898,25 @@
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('pwdModal')">取消</button>
       <button class="btn btn-primary" onclick="savePwd()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 临时计分密码弹窗 -->
+<div class="modal-overlay" id="tempPwdModal">
+  <div class="modal">
+    <div class="modal-title">🧾 临时计分密码</div>
+    <div class="modal-field-label">当前临时密码</div>
+    <div id="tempPwdCurrent" style="font-weight:700;font-size:1.15rem;color:var(--sky);margin-bottom:14px;">未设置</div>
+    <div class="modal-field-label">设置 / 修改临时密码</div>
+    <input type="text" id="newTempPwd" placeholder="至少 4 位，用于录入比分" maxlength="12" />
+    <button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:12px;" onclick="generateRandomTempPwd()">🎲 随机生成 4 位密码</button>
+    <div class="modal-delete-row">
+      <button class="btn btn-danger btn-sm" onclick="clearTempPwd()">🗑 清除临时密码（禁用）</button>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('tempPwdModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveTempPwd()">保存</button>
     </div>
   </div>
 </div>
@@ -1027,7 +1054,9 @@ const STATE = {
   setsPerMatch: 1,
   totalRounds: 6,       // 预设总轮数
   adminPwd: 'admin123', // 默认密码
+  tempPwd: '',           // 临时计分密码（未设置为空，管理员可在设置页开启）
   isAdmin: false,
+  isScorer: false,       // 是否拥有"录入比分"权限（管理员登录会自动获得）
   balanceLevel: true,   // 排阵时是否考虑水平均衡
   // players: [{id, name, gender, level, totalGames, wins, waitRounds, points,
   //            lastPlayedRound, partners:{pid:count}, opponents:{pid:count}}]
@@ -1058,6 +1087,7 @@ window.syncFromRemote = function(data) {
       setsPerMatch: data.settings.setsPerMatch ?? STATE.setsPerMatch,
       totalRounds: data.settings.totalRounds ?? STATE.totalRounds,
       adminPwd: data.settings.adminPwd ?? STATE.adminPwd,
+      tempPwd: data.settings.tempPwd ?? STATE.tempPwd,
       balanceLevel: data.settings.balanceLevel ?? STATE.balanceLevel,
     });
   }
@@ -1094,6 +1124,7 @@ function pushToFirebase() {
       setsPerMatch: STATE.setsPerMatch,
       totalRounds: STATE.totalRounds,
       adminPwd: STATE.adminPwd,
+      tempPwd: STATE.tempPwd,
       balanceLevel: STATE.balanceLevel,
     });
     const playersObj = {};
@@ -2213,7 +2244,7 @@ function renderMatchCard(m, mi, roundIdx) {
     }
   }
 
-  const scoreBtn = STATE.isAdmin
+  const scoreBtn = (STATE.isAdmin || STATE.isScorer)
     ? `<button class="btn btn-sky btn-sm" style="margin-top:8px;width:100%;" onclick="openScoreModal(${roundIdx},${mi})">
         ${m.status === 'done' ? '✏️ 修改比分' : '📝 录入比分'}
       </button>`
@@ -2262,7 +2293,7 @@ function nextRound() {
 // 比分录入
 // =====================================================
 function openScoreModal(roundIdx, matchIdx) {
-  if (!STATE.isAdmin) { requireAdmin(); return; }
+  if (!requireScorer()) return;
   const round = STATE.rounds[roundIdx];
   const m = round.matches[matchIdx];
   const getPlayer = id => STATE.players.find(p => p.id === id);
@@ -2490,19 +2521,37 @@ function renderHistory() {
 }
 
 // =====================================================
-// 管理员
+// 权限管理：管理员（全部权限） / 临时密码（仅录入比分）
 // =====================================================
+function updateAdminBtnLabel() {
+  const btn = document.getElementById('adminToggleBtn');
+  if (!btn) return;
+  if (STATE.isAdmin) btn.textContent = '🔓 退出管理';
+  else if (STATE.isScorer) btn.textContent = '🔓 退出计分';
+  else btn.textContent = '🔑 登录';
+}
+
+/** 需要管理员权限的操作（发起比赛、改设置、管理密码等） */
 function requireAdmin() {
   if (STATE.isAdmin) return true;
+  if (STATE.isScorer) showToast('该操作需要管理员密码');
+  openModal('adminModal');
+  return false;
+}
+
+/** 只需要计分权限的操作（管理员或临时密码均可） */
+function requireScorer() {
+  if (STATE.isAdmin || STATE.isScorer) return true;
   openModal('adminModal');
   return false;
 }
 
 function toggleAdmin() {
-  if (STATE.isAdmin) {
+  if (STATE.isAdmin || STATE.isScorer) {
     STATE.isAdmin = false;
-    document.getElementById('adminToggleBtn').textContent = '🔑 管理';
-    showToast('已退出管理员模式');
+    STATE.isScorer = false;
+    updateAdminBtnLabel();
+    showToast('已退出登录');
     renderMatchPage();
     return;
   }
@@ -2513,11 +2562,20 @@ function verifyAdmin() {
   const input = document.getElementById('adminPwdInput').value;
   if (input === STATE.adminPwd) {
     STATE.isAdmin = true;
-    document.getElementById('adminToggleBtn').textContent = '🔓 退出管理';
+    STATE.isScorer = true; // 管理员天然拥有计分权限
     document.getElementById('adminError').style.display = 'none';
     document.getElementById('adminPwdInput').value = '';
+    updateAdminBtnLabel();
     closeModal('adminModal');
     showToast('✅ 管理员模式已开启');
+    renderMatchPage();
+  } else if (STATE.tempPwd && input === STATE.tempPwd) {
+    STATE.isScorer = true;
+    document.getElementById('adminError').style.display = 'none';
+    document.getElementById('adminPwdInput').value = '';
+    updateAdminBtnLabel();
+    closeModal('adminModal');
+    showToast('✅ 已获得计分权限');
     renderMatchPage();
   } else {
     document.getElementById('adminError').style.display = 'block';
@@ -2526,7 +2584,7 @@ function verifyAdmin() {
 }
 
 function openPwdModal() {
-  if (!STATE.isAdmin) { requireAdmin(); return; }
+  if (!requireAdmin()) return;
   document.getElementById('newPwd1').value = '';
   document.getElementById('newPwd2').value = '';
   document.getElementById('pwdError').style.display = 'none';
@@ -2547,6 +2605,48 @@ function savePwd() {
   closeModal('pwdModal');
   pushToFirebase();
   showToast('✅ 密码已修改');
+}
+
+// ---------- 临时计分密码管理（仅管理员可设置） ----------
+function renderTempPwdStatus() {
+  const el = document.getElementById('tempPwdStatus');
+  if (!el) return;
+  el.textContent = STATE.tempPwd
+    ? `已设置：${STATE.tempPwd} · 分享给帮忙计分的人即可`
+    : '未设置 · 让帮忙计分的人无需管理员密码即可录入比分';
+}
+
+function openTempPwdModal() {
+  if (!requireAdmin()) return;
+  document.getElementById('tempPwdCurrent').textContent = STATE.tempPwd || '未设置';
+  document.getElementById('newTempPwd').value = '';
+  openModal('tempPwdModal');
+}
+
+function generateRandomTempPwd() {
+  const code = String(Math.floor(1000 + Math.random() * 9000)); // 4 位随机数字
+  document.getElementById('newTempPwd').value = code;
+}
+
+function saveTempPwd() {
+  const p = document.getElementById('newTempPwd').value.trim();
+  if (!p || p.length < 4) { showToast('密码至少 4 位'); return; }
+  if (p === STATE.adminPwd) { showToast('临时密码不能与管理员密码相同'); return; }
+  STATE.tempPwd = p;
+  closeModal('tempPwdModal');
+  pushToFirebase();
+  renderTempPwdStatus();
+  showToast('✅ 临时密码已设置');
+}
+
+function clearTempPwd() {
+  if (!STATE.tempPwd) { closeModal('tempPwdModal'); return; }
+  if (!confirm('确定清除临时密码？清除后该密码将无法再用于记分。')) return;
+  STATE.tempPwd = '';
+  closeModal('tempPwdModal');
+  pushToFirebase();
+  renderTempPwdStatus();
+  showToast('临时密码已清除');
 }
 
 // =====================================================
@@ -2586,6 +2686,8 @@ function renderAll() {
   document.getElementById('sets3').classList.toggle('active', STATE.setsPerMatch === 3);
   document.getElementById('balanceOn').classList.toggle('active', STATE.balanceLevel);
   document.getElementById('balanceOff').classList.toggle('active', !STATE.balanceLevel);
+  renderTempPwdStatus();
+  updateAdminBtnLabel();
 
   const activePage = document.querySelector('.page.active')?.id;
   if (activePage === 'page-match') renderMatchPage();
