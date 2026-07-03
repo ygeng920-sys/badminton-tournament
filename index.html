@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>一拍赛事</title>
+  <title>羽毛球轮转赛</title>
   <style>
     /* ===== 全局 ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -80,15 +80,16 @@
     }
     .tab-btn {
       flex: 1;
-      padding: 12px 4px;
+      padding: 12px 2px;
       border: none;
       background: none;
-      font-size: .85rem;
+      font-size: .78rem;
       font-weight: 500;
       color: var(--gray-500);
       cursor: pointer;
       position: relative;
       transition: color .2s;
+      white-space: nowrap;
     }
     .tab-btn.active {
       color: var(--primary);
@@ -591,7 +592,7 @@
     /* ===== 响应式 ===== */
     @media (max-width: 380px) {
       .player-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
-      .tab-btn { font-size: .78rem; }
+      .tab-btn { font-size: .66rem; padding: 10px 1px; }
     }
 
     /* ===== 轮次历史 ===== */
@@ -649,7 +650,7 @@
 
 <!-- 顶部栏 -->
 <div class="top-bar">
-  <h1>🏸 一拍赛事</h1>
+  <h1>🏸 羽毛球轮转赛</h1>
   <div style="display:flex;align-items:center;gap:8px;">
     <span class="conn-dot" id="connDot"></span>
     <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdmin()">🔑 管理</button>
@@ -661,6 +662,8 @@
   <button class="tab-btn active" onclick="showPage('setup')">⚙️ 设置</button>
   <button class="tab-btn" onclick="showPage('match')" id="tabMatch">🏆 对阵 <span class="tab-dot" id="dotMatch" style="display:none"></span></button>
   <button class="tab-btn" onclick="showPage('stats')">📊 统计</button>
+  <button class="tab-btn" onclick="showPage('library')">👤 球员库</button>
+  <button class="tab-btn" onclick="showPage('history')">🗂 历史</button>
 </div>
 
 <!-- ========== 设置页 ========== -->
@@ -845,6 +848,7 @@
     <div id="overviewContent">
       <div class="empty-state"><div class="emoji">📊</div><p>比赛开始后显示统计</p></div>
     </div>
+    <button class="btn btn-outline btn-sm" id="endTournamentBtn" style="width:100%;margin-top:12px;display:none;" onclick="endTournament()">🏁 结束本次比赛并归档到历史库</button>
   </div>
 
   <!-- 个人战绩 -->
@@ -853,11 +857,11 @@
     <table class="stat-table">
       <thead>
         <tr>
-          <th>排名</th><th>姓名</th><th>等级</th><th>场次</th><th>胜场</th><th>得分</th><th>等待</th>
+          <th>排名</th><th>姓名</th><th>等级</th><th>场次</th><th>进度</th><th>胜场</th><th>得分</th><th>等待</th>
         </tr>
       </thead>
       <tbody id="statsTbody">
-        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>
+        <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>
       </tbody>
     </table>
   </div>
@@ -870,6 +874,37 @@
     </div>
   </div>
 
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- ========== 球员库 ========== -->
+<div class="page" id="page-library">
+  <div class="card">
+    <div class="card-title"><span class="icon">👤</span> 球员库 <span class="chip chip-green" id="libraryCountBadge" style="margin-left:auto">0 人</span></div>
+    <div style="font-size:.78rem;color:var(--gray-500);margin-bottom:10px;">记录所有参赛选手的历史成绩与排名，随每次比赛结束自动累积；管理员可编辑或删除选手。</div>
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>排名</th><th>姓名</th><th>等级</th><th>参赛</th><th>累计场次</th><th>累计胜场</th><th>胜率</th><th>最近参赛</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="libraryTbody">
+        <tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:20px;">暂无球员数据</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- ========== 赛事历史库 ========== -->
+<div class="page" id="page-history">
+  <div class="card">
+    <div class="card-title"><span class="icon">🗂</span> 赛事历史库</div>
+    <div style="font-size:.78rem;color:var(--gray-500);margin-bottom:10px;">保存历届已结束的比赛结果，点击可查看当届最终排名；管理员可删除记录。</div>
+    <div id="historyLibList">
+      <div class="empty-state"><div class="emoji">🗂</div><p>暂无历史赛事，结束一场比赛后会自动归档到这里</p></div>
+    </div>
+  </div>
   <div class="safe-bottom"></div>
 </div>
 
@@ -917,6 +952,20 @@
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('tempPwdModal')">取消</button>
       <button class="btn btn-primary" onclick="saveTempPwd()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 赛事历史详情弹窗 -->
+<div class="modal-overlay" id="historyDetailModal">
+  <div class="modal" style="max-height:82vh;overflow-y:auto;">
+    <div class="modal-title" id="historyDetailTitle">🗂 赛事详情</div>
+    <table class="stat-table" style="margin-bottom:14px;">
+      <thead><tr><th>排名</th><th>姓名</th><th>场次</th><th>胜场</th><th>得分</th></tr></thead>
+      <tbody id="historyDetailTbody"></tbody>
+    </table>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('historyDetailModal')">关闭</button>
     </div>
   </div>
 </div>
@@ -1066,6 +1115,8 @@ const STATE = {
   activeRound: 0,       // 当前最新轮次索引
   scoreModalCtx: null,  // {roundIdx, matchIdx}
   editPlayerId: null,   // 当前正在编辑的选手 id
+  tournamentHistory: [], // 赛事历史库：[{id, seq, title, date, mode, courts, totalRounds, setsPerMatch, participants:[...]}]
+  tournamentCounter: 0,  // 累计已归档的赛事数（用于命名"第N届"）
   _syncing: false,      // 防止 Firebase 回调覆盖本地写入
 };
 
@@ -1109,6 +1160,14 @@ window.syncFromRemote = function(data) {
       STATE.currentRoundIdx = STATE.activeRound;
     }
   }
+  // 同步赛事历史库
+  if (data.history) {
+    const list = Array.isArray(data.history.list)
+      ? data.history.list
+      : Object.values(data.history.list || {}).filter(Boolean);
+    STATE.tournamentHistory = list;
+    STATE.tournamentCounter = data.history.counter ?? STATE.tournamentCounter;
+  }
 
   renderAll();
 };
@@ -1131,6 +1190,7 @@ function pushToFirebase() {
     STATE.players.forEach(p => { playersObj[p.id] = p; });
     window._fbSet('players', playersObj);
     window._fbSet('rounds', STATE.rounds);
+    window._fbSet('history', { list: STATE.tournamentHistory, counter: STATE.tournamentCounter });
   } catch(e) {
     console.warn('Firebase 写入失败:', e);
   } finally {
@@ -1147,12 +1207,14 @@ function showPage(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   // 找到对应 tab
-  const tabs = ['setup','match','stats'];
+  const tabs = ['setup','match','stats','library','history'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
 
   if (name === 'match') renderMatchPage();
   if (name === 'stats') renderStats();
+  if (name === 'library') renderPlayerLibrary();
+  if (name === 'history') renderTournamentHistory();
 }
 
 // =====================================================
@@ -1292,6 +1354,7 @@ function addPlayer() {
     lastPlayedRound: -1,
     partners: {},
     opponents: {},
+    career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
   });
   inp.value = '';
   inp.focus();
@@ -1323,6 +1386,7 @@ function batchImport() {
       id: genId(), name, gender, level, selected: true,
       totalGames: 0, wins: 0, waitRounds: 0, points: 0, lastPlayedRound: -1,
       partners: {}, opponents: {},
+      career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
     });
     added++;
   });
@@ -1351,6 +1415,7 @@ function selectEditGender(g) {
 }
 
 function openEditPlayer(id) {
+  if (!requireAdmin()) return;
   const p = STATE.players.find(x => x.id === id);
   if (!p) return;
   STATE.editPlayerId = id;
@@ -1363,6 +1428,7 @@ function openEditPlayer(id) {
 }
 
 function saveEditPlayer() {
+  if (!requireAdmin()) return;
   const p = STATE.players.find(x => x.id === STATE.editPlayerId);
   if (!p) { closeModal('editPlayerModal'); return; }
   const name = document.getElementById('editPlayerName').value.trim();
@@ -1373,17 +1439,20 @@ function saveEditPlayer() {
   p.level = parseFloat(document.getElementById('editPlayerLevel').value) || 3;
   closeModal('editPlayerModal');
   renderPlayers();
+  renderPlayerLibrary();
   pushToFirebase();
   showToast('✅ 已保存');
 }
 
 function deletePlayerFromEdit() {
+  if (!requireAdmin()) return;
   const p = STATE.players.find(x => x.id === STATE.editPlayerId);
   if (!p) return;
-  if (!confirm(`确定删除选手「${p.name}」？`)) return;
+  if (!confirm(`确定删除选手「${p.name}」？该选手的历史赛事记录仍会保留在赛事历史库中。`)) return;
   STATE.players = STATE.players.filter(x => x.id !== p.id);
   closeModal('editPlayerModal');
   renderPlayers();
+  renderPlayerLibrary();
   updatePlayerCount();
   pushToFirebase();
   showToast('已删除');
@@ -2036,7 +2105,11 @@ function startTournament() {
     showToast('至少需要选中 4 名参赛选手');
     return;
   }
-  if (!confirm(`确认开始比赛？将一次性生成 ${STATE.totalRounds} 轮对阵。`)) return;
+  const hasUnarchived = STATE.rounds.length > 0;
+  const confirmMsg = hasUnarchived
+    ? `检测到上一场比赛尚未归档，将自动归档到历史库后再开始新比赛（共 ${STATE.totalRounds} 轮）。确认继续？`
+    : `确认开始比赛？将一次性生成 ${STATE.totalRounds} 轮对阵。`;
+  if (!confirm(confirmMsg)) return;
 
   const courts = Math.min(STATE.courts, Math.floor(sel.length / 4));
   if (courts < 1) {
@@ -2048,6 +2121,9 @@ function startTournament() {
   // 用 setTimeout 让浏览器先把上面的提示绘制出来，
   // 避免排阵引擎的同步计算（人数较多时可能耗时 1~2 秒）卡住界面却没有任何反馈
   setTimeout(() => {
+    // 若上一场比赛还没手动结束归档，这里自动归档一次，避免历史数据被覆盖丢失
+    if (hasUnarchived) archiveCurrentTournament(true);
+
     STATE.rounds = [];
     STATE.activeRound = 0;
     STATE.currentRoundIdx = 0;
@@ -2422,7 +2498,12 @@ function renderStats() {
 }
 
 function renderOverview() {
-  if (STATE.rounds.length === 0) return;
+  const endBtn = document.getElementById('endTournamentBtn');
+  if (STATE.rounds.length === 0) {
+    if (endBtn) endBtn.style.display = 'none';
+    return;
+  }
+  if (endBtn) endBtn.style.display = 'block';
   const totalRounds = STATE.rounds.length;
   const totalMatches = STATE.rounds.reduce((acc, r) => acc + r.matches.length, 0);
   const doneMatches = STATE.rounds.reduce((acc, r) => acc + r.matches.filter(m => m.status === 'done').length, 0);
@@ -2456,11 +2537,24 @@ function renderOverview() {
     </div>`;
 }
 
+function getPlayerProgress(playerId) {
+  let total = 0, completed = 0;
+  STATE.rounds.forEach(round => {
+    round.matches.forEach(m => {
+      if (m.teamA.includes(playerId) || m.teamB.includes(playerId)) {
+        total++;
+        if (m.status === 'done') completed++;
+      }
+    });
+  });
+  return { completed, total };
+}
+
 function renderStatTable() {
   const tbody = document.getElementById('statsTbody');
   const players = STATE.players.filter(p => p.selected || p.totalGames > 0);
   if (players.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:20px;">暂无数据</td></tr>';
     return;
   }
 
@@ -2473,11 +2567,13 @@ function renderStatTable() {
     const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
     const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
     const winRate = p.totalGames > 0 ? Math.round(p.wins / p.totalGames * 100) : 0;
+    const progress = getPlayerProgress(p.id);
     return `<tr>
       <td class="stat-rank ${rankClass}">${rankIcon}</td>
       <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
       <td>${p.level || 3}</td>
       <td>${p.totalGames}</td>
+      <td>${progress.completed}/${progress.total}</td>
       <td>${p.wins}<small style="color:var(--gray-400);"> (${winRate}%)</small></td>
       <td>${p.points}</td>
       <td>${p.waitRounds}轮</td>
@@ -2518,6 +2614,185 @@ function renderHistory() {
       </div>
     </details>`;
   }).reverse().join('');
+}
+
+// =====================================================
+// 球员库（career 历史累计数据）
+// =====================================================
+function ensureCareer(p) {
+  if (!p.career) {
+    p.career = { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null };
+  }
+  return p.career;
+}
+
+function renderPlayerLibrary() {
+  const tbody = document.getElementById('libraryTbody');
+  const badge = document.getElementById('libraryCountBadge');
+  const players = STATE.players;
+  if (badge) badge.textContent = players.length + ' 人';
+
+  if (!tbody) return;
+  if (players.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:20px;">暂无球员数据</td></tr>';
+    return;
+  }
+
+  const rows = players.map(p => ({ p, c: ensureCareer(p) }));
+  const sorted = [...rows].sort((a, b) => {
+    if (b.c.wins !== a.c.wins) return b.c.wins - a.c.wins;
+    if (b.c.points !== a.c.points) return b.c.points - a.c.points;
+    return b.c.games - a.c.games;
+  });
+
+  const canManage = STATE.isAdmin;
+
+  tbody.innerHTML = sorted.map(({ p, c }, i) => {
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+    const winRate = c.games > 0 ? Math.round(c.wins / c.games * 100) : 0;
+    const lastAtStr = c.lastAt ? new Date(c.lastAt).toLocaleDateString('zh-CN') : '-';
+    const manageBtn = canManage
+      ? `<button class="player-edit-btn" style="position:static;font-size:.9rem;" onclick="openEditPlayer('${p.id}')" title="编辑/删除">✎</button>`
+      : '';
+    return `<tr>
+      <td class="stat-rank ${rankClass}">${rankIcon}</td>
+      <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+      <td>${p.level || 3}</td>
+      <td>${c.tournaments}</td>
+      <td>${c.games}</td>
+      <td>${c.wins}</td>
+      <td>${winRate}%</td>
+      <td style="font-size:.75rem;color:var(--gray-400);">${lastAtStr}</td>
+      <td>${manageBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+// =====================================================
+// 赛事历史库
+// =====================================================
+
+/**
+ * 归档当前比赛：生成快照写入历史库，并把本场数据累加进每位选手的 career 统计。
+ * silent = true 时不弹提示（用于"开始新比赛"时的自动归档）。
+ */
+function archiveCurrentTournament(silent) {
+  if (STATE.rounds.length === 0) return false;
+
+  const participants = STATE.players
+    .filter(p => p.totalGames > 0)
+    .map(p => ({
+      id: p.id, name: p.name, gender: p.gender, level: p.level || 3,
+      totalGames: p.totalGames, wins: p.wins, points: p.points,
+    }))
+    .sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+
+  const now = Date.now();
+  STATE.tournamentCounter = (STATE.tournamentCounter || 0) + 1;
+
+  const record = {
+    id: genId(),
+    seq: STATE.tournamentCounter,
+    title: `第 ${STATE.tournamentCounter} 届 · ${new Date(now).toLocaleDateString('zh-CN')}`,
+    date: now,
+    mode: STATE.mode,
+    courts: STATE.courts,
+    totalRounds: STATE.rounds.length,
+    setsPerMatch: STATE.setsPerMatch,
+    participants,
+  };
+  STATE.tournamentHistory = [record, ...STATE.tournamentHistory];
+
+  // 累加进每位参赛选手的 career 数据
+  participants.forEach(part => {
+    const p = STATE.players.find(x => x.id === part.id);
+    if (!p) return;
+    const c = ensureCareer(p);
+    c.tournaments += 1;
+    c.games += part.totalGames;
+    c.wins += part.wins;
+    c.points += part.points;
+    if (!c.firstAt) c.firstAt = now;
+    c.lastAt = now;
+  });
+
+  // 重置本场比赛数据，准备下一场
+  STATE.players.forEach(p => {
+    p.totalGames = 0; p.wins = 0; p.points = 0; p.waitRounds = 0; p.lastPlayedRound = -1;
+  });
+  STATE.rounds = [];
+  STATE.activeRound = 0;
+  STATE.currentRoundIdx = 0;
+
+  if (!silent) showToast(`🏁 已归档「${record.title}」`);
+  return true;
+}
+
+function endTournament() {
+  if (!requireAdmin()) return;
+  if (STATE.rounds.length === 0) { showToast('当前没有进行中的比赛'); return; }
+  if (!confirm('确定结束本次比赛？将把当前结果归档到赛事历史库，并清空对阵以便开始下一场。')) return;
+  archiveCurrentTournament(false);
+  pushToFirebase();
+  renderAll();
+  showPage('history');
+}
+
+function renderTournamentHistory() {
+  const container = document.getElementById('historyLibList');
+  if (!container) return;
+  if (STATE.tournamentHistory.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">🗂</div><p>暂无历史赛事，结束一场比赛后会自动归档到这里</p></div>';
+    return;
+  }
+  const canManage = STATE.isAdmin;
+
+  container.innerHTML = STATE.tournamentHistory.map(rec => {
+    const modeLabel = rec.mode === 'mixed' ? '混双' : '自由双打';
+    const dateStr = new Date(rec.date).toLocaleString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const deleteBtn = canManage
+      ? `<button class="btn btn-danger btn-sm" style="padding:4px 10px;font-size:.75rem;" onclick="event.stopPropagation();deleteHistoryEntry('${rec.id}')">删除</button>`
+      : '';
+    return `<div style="padding:12px;background:var(--gray-50);border-radius:10px;margin-bottom:10px;cursor:pointer;" onclick="viewHistoryDetail('${rec.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <b style="font-size:.92rem;">${escHtml(rec.title)}</b>
+        ${deleteBtn}
+      </div>
+      <div style="font-size:.75rem;color:var(--gray-400);margin-top:4px;">
+        ${dateStr} · ${modeLabel} · ${rec.courts} 片场地 · ${rec.totalRounds} 轮 · ${rec.participants.length} 人参赛
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function viewHistoryDetail(id) {
+  const rec = STATE.tournamentHistory.find(r => r.id === id);
+  if (!rec) return;
+  document.getElementById('historyDetailTitle').textContent = `🗂 ${rec.title}`;
+  document.getElementById('historyDetailTbody').innerHTML = rec.participants.map((p, i) => {
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+    return `<tr>
+      <td class="stat-rank ${rankClass}">${rankIcon}</td>
+      <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+      <td>${p.totalGames}</td>
+      <td>${p.wins}</td>
+      <td>${p.points}</td>
+    </tr>`;
+  }).join('');
+  openModal('historyDetailModal');
+}
+
+function deleteHistoryEntry(id) {
+  if (!requireAdmin()) return;
+  const rec = STATE.tournamentHistory.find(r => r.id === id);
+  if (!rec) return;
+  if (!confirm(`确定删除「${rec.title}」的历史记录？此操作不会影响选手的球员库累计数据。`)) return;
+  STATE.tournamentHistory = STATE.tournamentHistory.filter(r => r.id !== id);
+  pushToFirebase();
+  renderTournamentHistory();
+  showToast('已删除该赛事记录');
 }
 
 // =====================================================
@@ -2692,6 +2967,8 @@ function renderAll() {
   const activePage = document.querySelector('.page.active')?.id;
   if (activePage === 'page-match') renderMatchPage();
   if (activePage === 'page-stats') renderStats();
+  if (activePage === 'page-library') renderPlayerLibrary();
+  if (activePage === 'page-history') renderTournamentHistory();
 
   if (STATE.rounds.length > 0) {
     document.getElementById('dotMatch').style.display = 'inline-block';
