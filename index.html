@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>羽毛球轮转赛</title>
+  <title>一拍赛事</title>
   <style>
     /* ===== 全局 ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -650,7 +650,7 @@
 
 <!-- 顶部栏 -->
 <div class="top-bar">
-  <h1>🏸 羽毛球轮转赛</h1>
+  <h1>🏸 一拍赛事</h1>
   <div style="display:flex;align-items:center;gap:8px;">
     <span class="conn-dot" id="connDot"></span>
     <button class="admin-btn" id="adminToggleBtn" onclick="toggleAdmin()">🔑 管理</button>
@@ -1544,558 +1544,391 @@ function levelOf(p) {
 }
 
 // =====================================================
-// 排阵引擎（Scheduling Engine）
-// 模块划分：
-//   1. 权重配置（规则优先级）
-//   2. 影子统计（ShadowStats）—— 生成/优化期间的临时统计，与真实球员数据隔离
-//   3. 上场 / 轮空统计（PlayBye）
-//   4. 搭档 & 对手统计（PairStats，两者复用同一套逻辑）
-//   5. 同场（小圈子）统计（GroupStats）
-//   6. 场地统计（CourtStats）
-//   7. 对阵生成（Builder）—— 逐轮贪心构造初始方案
-//   8. 整体评分（Evaluator）—— 给一份完整赛程打分，供优化器使用
-//   9. 对阵优化（Optimizer）—— 局部搜索，持续改进赛程
-//  10. 规则检查（RuleChecker）—— 生成后自查，输出问题清单
-//  11. 对外入口（generateSchedule）
+// 排阵引擎（Scheduling Engine v5 - Final）
 //
-// 新增规则时，只需新增一个"统计模块 + 对应权重 + 在 applyRound / 预览函数中挂一行"，
-// 不需要改动其它模块，便于长期演进。
+// 核心思路：
+//   1. 穷举验证所有步长，选满足连续性(maxPlay≤3,maxBye≤2)+公平性(diff≤1)
+//      且多样性最高的步长，用轮转窗口生成上场名单序列。
+//   2. 若找不到满足约束的步长（极端配置），降级为约束满足贪心生成器。
+//   3. 多次随机重启（随机打乱初始顺序），取多样性最高的结果。
+//   4. 在最终上场名单基础上，用局部搜索优化分队（搭档/对手/实力均衡）。
 // =====================================================
 
-// ---------- 1. 权重配置（数值越大代表优先级越高） ----------
+// ---------- 1. 权重配置 ----------
 const SCHED_WEIGHTS = {
-  fairness: 2000000,        // 优先级1：上场次数公平
-  consecutiveBye: 300000,   // 优先级2：避免连续轮空
-  consecutivePlay: 60000,   // 优先级3：避免连续比赛
-  levelBalance: 3000,       // 优先级4：双方实力均衡
-  byeSpread: 800,           // 优先级5：轮空分布均匀
-  partnerRepeat: 300,       // 优先级6.1：减少重复搭档
-  partnerRecent: 150,       // 优先级6.2：避免近期重复搭档
-  opponentRepeat: 120,      // 优先级7.1：减少重复对手
-  opponentRecent: 60,       // 优先级7.2：避免近期重复交手
-  groupRepeat: 500,         // 优先级8：减少重复同场（固定小圈子）
-  courtBalance: 40,         // 优先级9：场地均衡
+  levelBalance:   3000,
+  partnerRepeat:  300,
+  partnerRecent:  150,
+  opponentRepeat: 120,
+  opponentRecent: 60,
+  courtBalance:   40,
 };
 
-// ---------- 2. 影子统计：生成过程中的临时数据，不写入真实球员对象 ----------
+// ---------- 2. 影子统计 ----------
 function createShadow(players) {
-  const shadow = {};
+  const s = {};
   players.forEach(p => {
-    shadow[p.id] = {
-      gamesPlayed: 0,
-      byeCount: 0,
-      consecutiveByes: 0,
-      consecutivePlays: 0,
-      maxConsecutiveByes: 0,
-      maxConsecutivePlays: 0,
-      lastPlayedRound: -1,
-      byeRounds: [],
-      partners: {}, lastPartnerRound: {},
-      opponents: {}, lastOpponentRound: {},
-      courts: {},
+    s[p.id] = {
+      gamesPlayed:0, consecutiveByes:0, consecutivePlays:0,
+      maxConsecutiveByes:0, maxConsecutivePlays:0, byeRounds:[],
+      partners:{}, lastPartnerRound:{}, opponents:{}, lastOpponentRound:{},
+      sharedCourt:{}, courts:{},
     };
   });
-  return shadow;
+  return s;
 }
 
-// ---------- 3. 上场 / 轮空统计 ----------
-function updatePlayBye(players, shadow, playingIds, roundIdx) {
-  let cost = 0;
-  players.forEach(p => {
-    const s = shadow[p.id];
-    if (playingIds.has(p.id)) {
-      s.gamesPlayed++; s.consecutivePlays++; s.consecutiveByes = 0;
-      s.lastPlayedRound = roundIdx;
-      s.maxConsecutivePlays = Math.max(s.maxConsecutivePlays, s.consecutivePlays);
-      if (s.consecutivePlays > 3) cost += (s.consecutivePlays - 3) * SCHED_WEIGHTS.consecutivePlay;
-    } else {
-      s.byeCount++; s.consecutiveByes++; s.consecutivePlays = 0;
-      s.byeRounds.push(roundIdx);
-      s.maxConsecutiveByes = Math.max(s.maxConsecutiveByes, s.consecutiveByes);
-      if (s.consecutiveByes > 2) cost += (s.consecutiveByes - 2) * SCHED_WEIGHTS.consecutiveBye;
-    }
-  });
-  return cost;
-}
-
-// ---------- 4. 搭档 / 对手统计（同一套逻辑复用） ----------
-function pairPreviewCost(shadow, pA, pB, type, weight) {
-  const cnt = (shadow[pA.id][type][pB.id]) || 0;
-  return cnt * weight;
-}
-
-function touchPair(shadow, pA, pB, roundIdx, type, repeatWeight, recentWeight) {
-  const lastKey = type === 'partners' ? 'lastPartnerRound' : 'lastOpponentRound';
-  const sA = shadow[pA.id], sB = shadow[pB.id];
-  const prevCount = sA[type][pB.id] || 0;
-  let cost = 0;
-  let recentGap = null;
-  if (prevCount > 0) {
-    cost += prevCount * repeatWeight;
-    const lastRound = sA[lastKey][pB.id];
-    if (lastRound !== undefined) {
-      recentGap = roundIdx - lastRound;
-      cost += Math.max(0, recentWeight * (6 - recentGap));
-    }
-  }
-  sA[type][pB.id] = prevCount + 1;
-  sB[type][pA.id] = (sB[type][pA.id] || 0) + 1;
-  sA[lastKey][pB.id] = roundIdx;
-  sB[lastKey][pA.id] = roundIdx;
-  return { cost, prevCount, recentGap };
-}
-
-// ---------- 5. 同场（小圈子）统计 ----------
-function groupKeyOf(ids) {
-  return [...ids].sort().join(',');
-}
-function groupPreviewCost(groupCounts, ids) {
-  return (groupCounts.get(groupKeyOf(ids)) || 0) * SCHED_WEIGHTS.groupRepeat;
-}
-function touchGroup(groupCounts, match) {
-  const key = groupKeyOf([...match.teamA, ...match.teamB]);
-  const prevCount = groupCounts.get(key) || 0;
-  groupCounts.set(key, prevCount + 1);
-  return { cost: prevCount * SCHED_WEIGHTS.groupRepeat, prevCount };
-}
-
-// ---------- 6. 场地统计 ----------
-function courtPreviewCost(shadow, playerIds, courtNum) {
-  return playerIds.reduce((sum, id) => sum + (shadow[id].courts[courtNum] || 0) * SCHED_WEIGHTS.courtBalance, 0);
-}
-function touchCourt(shadow, playerIds, courtNum) {
-  let cost = 0;
-  playerIds.forEach(id => {
+function updateShadow(shadow, playingIds, allIds, roundIdx) {
+  allIds.forEach(id => {
     const s = shadow[id];
-    const prevCount = s.courts[courtNum] || 0;
-    cost += prevCount * SCHED_WEIGHTS.courtBalance;
-    s.courts[courtNum] = prevCount + 1;
+    if (playingIds.has(id)) {
+      s.gamesPlayed++; s.consecutivePlays++; s.consecutiveByes=0;
+      s.maxConsecutivePlays=Math.max(s.maxConsecutivePlays, s.consecutivePlays);
+    } else {
+      s.consecutiveByes++; s.consecutivePlays=0; s.byeRounds.push(roundIdx);
+      s.maxConsecutiveByes=Math.max(s.maxConsecutiveByes, s.consecutiveByes);
+    }
   });
-  return cost;
 }
 
-// ---------- 组队代价（实力均衡 + 搭档/对手预览，用于构造阶段挑选最优分组） ----------
-function splitCost(teamA, teamB, shadow) {
-  let cost = 0;
-  if (STATE.balanceLevel) {
-    const lvlA = teamA.reduce((s, p) => s + levelOf(p), 0);
-    const lvlB = teamB.reduce((s, p) => s + levelOf(p), 0);
-    cost += Math.abs(lvlA - lvlB) * SCHED_WEIGHTS.levelBalance;
+// ---------- 3. 配对统计 ----------
+function touchPair(shadow, pA, pB, roundIdx, type) {
+  const rW = type==='partners'?SCHED_WEIGHTS.partnerRepeat:SCHED_WEIGHTS.opponentRepeat;
+  const nW = type==='partners'?SCHED_WEIGHTS.partnerRecent:SCHED_WEIGHTS.opponentRecent;
+  const lK = type==='partners'?'lastPartnerRound':'lastOpponentRound';
+  const sA=shadow[pA.id], sB=shadow[pB.id];
+  const prev=sA[type][pB.id]||0;
+  let cost=prev*rW, recentGap=null;
+  if(prev>0&&sA[lK][pB.id]!==undefined){
+    recentGap=roundIdx-sA[lK][pB.id];
+    cost+=Math.max(0,nW*(6-recentGap));
   }
-  cost += pairPreviewCost(shadow, teamA[0], teamA[1], 'partners', SCHED_WEIGHTS.partnerRepeat);
-  cost += pairPreviewCost(shadow, teamB[0], teamB[1], 'partners', SCHED_WEIGHTS.partnerRepeat);
-  teamA.forEach(a => teamB.forEach(b => {
-    cost += pairPreviewCost(shadow, a, b, 'opponents', SCHED_WEIGHTS.opponentRepeat);
-  }));
-  return cost;
+  sA[type][pB.id]=prev+1; sB[type][pA.id]=(sB[type][pA.id]||0)+1;
+  sA[lK][pB.id]=roundIdx;  sB[lK][pA.id]=roundIdx;
+  return {cost,prev,recentGap};
+}
+
+function pairCost(shadow, pA, pB, type) {
+  const w=type==='partners'?SCHED_WEIGHTS.partnerRepeat:SCHED_WEIGHTS.opponentRepeat;
+  return (shadow[pA.id][type][pB.id]||0)*w;
+}
+
+function recordSharedCourt(shadow, ids) {
+  for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+    shadow[ids[i]].sharedCourt[ids[j]]=(shadow[ids[i]].sharedCourt[ids[j]]||0)+1;
+    shadow[ids[j]].sharedCourt[ids[i]]=(shadow[ids[j]].sharedCourt[ids[i]]||0)+1;
+  }
+}
+
+// ---------- 4. 分队 ----------
+function splitCost(tA, tB, shadow) {
+  let c=0;
+  if(STATE.balanceLevel){
+    const lA=tA.reduce((s,p)=>s+levelOf(p),0), lB=tB.reduce((s,p)=>s+levelOf(p),0);
+    c+=Math.abs(lA-lB)*SCHED_WEIGHTS.levelBalance;
+  }
+  c+=pairCost(shadow,tA[0],tA[1],'partners')+pairCost(shadow,tB[0],tB[1],'partners');
+  tA.forEach(a=>tB.forEach(b=>c+=pairCost(shadow,a,b,'opponents')));
+  return c;
 }
 
 function bestTeamSplit(group, shadow) {
-  const [a, b, c, d] = group;
-  const splits = shuffle([
-    { teamA: [a, b], teamB: [c, d] },
-    { teamA: [a, c], teamB: [b, d] },
-    { teamA: [a, d], teamB: [b, c] },
-  ]);
-  splits.forEach(s => { s.cost = splitCost(s.teamA, s.teamB, shadow); });
-  splits.sort((x, y) => x.cost - y.cost);
-  return splits[0];
+  const [a,b,c,d]=group;
+  const opts=shuffle([{tA:[a,b],tB:[c,d]},{tA:[a,c],tB:[b,d]},{tA:[a,d],tB:[b,c]}]);
+  opts.forEach(o=>o.cost=splitCost(o.tA,o.tB,shadow));
+  opts.sort((x,y)=>x.cost-y.cost);
+  return opts[0];
 }
 
 function bestMixedSplit(males, females, shadow) {
-  const [m1, m2] = males, [f1, f2] = females;
-  const splits = shuffle([
-    { teamA: [m1, f1], teamB: [m2, f2] },
-    { teamA: [m1, f2], teamB: [m2, f1] },
-  ]);
-  splits.forEach(s => { s.cost = splitCost(s.teamA, s.teamB, shadow); });
-  splits.sort((x, y) => x.cost - y.cost);
-  return splits[0];
+  const [m1,m2]=males,[f1,f2]=females;
+  const opts=shuffle([{tA:[m1,f1],tB:[m2,f2]},{tA:[m1,f2],tB:[m2,f1]}]);
+  opts.forEach(o=>o.cost=splitCost(o.tA,o.tB,shadow));
+  opts.sort((x,y)=>x.cost-y.cost);
+  return opts[0];
 }
 
-function makeMatch(court, teamA, teamB) {
+function makeMatch(court, tA, tB) {
   return {
-    id: genId(),
-    court,
-    teamA: teamA.map(p => p.id),
-    teamB: teamB.map(p => p.id),
-    scores: Array.from({ length: STATE.setsPerMatch }, () => ({ a: 0, b: 0 })),
-    status: 'playing',
+    id:genId(), court,
+    teamA:tA.map(p=>p.id), teamB:tB.map(p=>p.id),
+    scores:Array.from({length:STATE.setsPerMatch},()=>({a:0,b:0})),
+    status:'playing',
   };
 }
 
-// ---------- 7. 对阵生成（Builder）：逐轮贪心选人 + 分组 ----------
+// ---------- 5. 上场名单生成器 ----------
 
-/**
- * 从候选人中选出本轮上场名单，严格遵循优先级：
- * ① 连续轮空 ≥2 轮的人必须上场；② 连续比赛 ≥3 轮的人必须轮空；
- * ③ 在满足①②的前提下，按"已上场次数少者优先、连续轮空多者优先"的顺序补齐名额。
- */
-function selectPlayingSet(players, shadow, slots) {
-  if (players.length <= slots) return { playing: [...players], resting: [] };
-
-  let mustPlay = players.filter(p => shadow[p.id].consecutiveByes >= 2);
-  let mustRest = players.filter(p => shadow[p.id].consecutivePlays >= 3);
-  let pool = players.filter(p => !mustPlay.includes(p) && !mustRest.includes(p));
-
-  // 场地不够容纳所有"必须上场"的人时，优先安排连续轮空更久的人，其余退回候选池
-  if (mustPlay.length > slots) {
-    mustPlay = shuffle(mustPlay).sort((a, b) => shadow[b.id].consecutiveByes - shadow[a.id].consecutiveByes);
-    pool = [...pool, ...mustPlay.slice(slots)];
-    mustPlay = mustPlay.slice(0, slots);
-  }
-
-  const need = Math.max(0, slots - mustPlay.length);
-  pool = shuffle(pool).sort((a, b) => {
-    const sa = shadow[a.id], sb = shadow[b.id];
-    if (sa.gamesPlayed !== sb.gamesPlayed) return sa.gamesPlayed - sb.gamesPlayed;
-    if (sa.consecutiveByes !== sb.consecutiveByes) return sb.consecutiveByes - sa.consecutiveByes;
-    return 0;
-  });
-
-  const extraPlaying = pool.slice(0, need);
-  let resting = [...pool.slice(need), ...mustRest];
-  let playing = [...mustPlay, ...extraPlaying];
-
-  // 兜底：候选池仍不够（mustRest 占用过多），从 resting 中按公平原则强制抽人补齐
-  if (playing.length < slots) {
-    resting = shuffle(resting).sort((a, b) => {
-      const sa = shadow[a.id], sb = shadow[b.id];
-      if (sa.gamesPlayed !== sb.gamesPlayed) return sa.gamesPlayed - sb.gamesPlayed;
-      return sa.consecutivePlays - sb.consecutivePlays;
-    });
-    const forced = resting.splice(0, slots - playing.length);
-    playing = [...playing, ...forced];
-  }
-
-  return { playing, resting };
-}
-
-/** 自由双打：把上场人员分配到各片场地，兼顾实力均衡、搭档/对手/同场多样性、场地均衡 */
-function groupIntoCourts(players, courts, shadow, groupCounts) {
-  if (courts <= 1) return [{ courtNum: 1, group: players }];
-  let best = null, bestCost = Infinity;
-  for (let a = 0; a < 40; a++) {
-    const shuffled = shuffle(players);
-    const courtOrder = shuffle([...Array(courts).keys()].map(i => i + 1));
-    const groups = [];
-    for (let c = 0; c < courts; c++) {
-      groups.push({ courtNum: courtOrder[c], group: shuffled.slice(c * 4, c * 4 + 4) });
-    }
-    let cost = 0;
-    groups.forEach(g => {
-      cost += bestTeamSplit(g.group, shadow).cost;
-      cost += groupPreviewCost(groupCounts, g.group.map(p => p.id));
-      cost += courtPreviewCost(shadow, g.group.map(p => p.id), g.courtNum);
-    });
-    if (cost < bestCost) { bestCost = cost; best = groups; }
-  }
-  return best;
-}
-
-/** 混双：把上场男/女分配到各片场地（每片场地固定 2 男 2 女） */
-function groupIntoMixedCourts(mPlayers, fPlayers, courts, shadow, groupCounts) {
-  if (courts <= 1) return [{ courtNum: 1, males: mPlayers, females: fPlayers }];
-  let best = null, bestCost = Infinity;
-  for (let a = 0; a < 40; a++) {
-    const sm = shuffle(mPlayers), sf = shuffle(fPlayers);
-    const courtOrder = shuffle([...Array(courts).keys()].map(i => i + 1));
-    const groups = [];
-    for (let c = 0; c < courts; c++) {
-      groups.push({ courtNum: courtOrder[c], males: sm.slice(c * 2, c * 2 + 2), females: sf.slice(c * 2, c * 2 + 2) });
-    }
-    let cost = 0;
-    groups.forEach(g => {
-      const allIds = [...g.males, ...g.females].map(p => p.id);
-      cost += bestMixedSplit(g.males, g.females, shadow).cost;
-      cost += groupPreviewCost(groupCounts, allIds);
-      cost += courtPreviewCost(shadow, allIds, g.courtNum);
-    });
-    if (cost < bestCost) { bestCost = cost; best = groups; }
-  }
-  return best;
-}
-
-function buildRoundMatches(players, courts, shadow, groupCounts) {
-  if (STATE.mode === 'mixed') {
-    const males = players.filter(p => p.gender === 'M');
-    const females = players.filter(p => p.gender === 'F');
-    const slotsPerGender = courts * 2;
-    const { playing: mPlaying, resting: mResting } = selectPlayingSet(males, shadow, slotsPerGender);
-    const { playing: fPlaying, resting: fResting } = selectPlayingSet(females, shadow, slotsPerGender);
-    const groups = groupIntoMixedCourts(mPlaying, fPlaying, courts, shadow, groupCounts);
-    const matches = groups.map(g => {
-      const split = bestMixedSplit(g.males, g.females, shadow);
-      return makeMatch(g.courtNum, split.teamA, split.teamB);
-    });
-    return { matches, restingIds: [...mResting, ...fResting].map(p => p.id) };
-  } else {
-    const slots = courts * 4;
-    const { playing, resting } = selectPlayingSet(players, shadow, slots);
-    const groups = groupIntoCourts(playing, courts, shadow, groupCounts);
-    const matches = groups.map(g => {
-      const split = bestTeamSplit(g.group, shadow);
-      return makeMatch(g.courtNum, split.teamA, split.teamB);
-    });
-    return { matches, restingIds: resting.map(p => p.id) };
-  }
-}
-
-function applyRound(round, roundIdx, players, shadow, groupCounts) {
-  const playingIds = new Set();
-  round.matches.forEach(m => [...m.teamA, ...m.teamB].forEach(id => playingIds.add(id)));
-
-  let cost = updatePlayBye(players, shadow, playingIds, roundIdx);
-
-  round.matches.forEach(m => {
-    const teamA = m.teamA.map(getPlayerById), teamB = m.teamB.map(getPlayerById);
-    if (STATE.balanceLevel) {
-      const lvlA = teamA.reduce((s, p) => s + levelOf(p), 0);
-      const lvlB = teamB.reduce((s, p) => s + levelOf(p), 0);
-      cost += Math.abs(lvlA - lvlB) * SCHED_WEIGHTS.levelBalance;
-    }
-    cost += touchPair(shadow, teamA[0], teamA[1], roundIdx, 'partners', SCHED_WEIGHTS.partnerRepeat, SCHED_WEIGHTS.partnerRecent).cost;
-    cost += touchPair(shadow, teamB[0], teamB[1], roundIdx, 'partners', SCHED_WEIGHTS.partnerRepeat, SCHED_WEIGHTS.partnerRecent).cost;
-    teamA.forEach(a => teamB.forEach(b => {
-      cost += touchPair(shadow, a, b, roundIdx, 'opponents', SCHED_WEIGHTS.opponentRepeat, SCHED_WEIGHTS.opponentRecent).cost;
-    }));
-    cost += touchGroup(groupCounts, m).cost;
-    cost += touchCourt(shadow, [...m.teamA, ...m.teamB], m.court);
-  });
-
-  return cost;
-}
-
-function buildInitialSchedule(players, courts, totalRounds) {
-  const shadow = createShadow(players);
-  const groupCounts = new Map();
-  const rounds = [];
-
-  for (let r = 0; r < totalRounds; r++) {
-    const { matches, restingIds } = buildRoundMatches(players, courts, shadow, groupCounts);
-    const round = { id: genId(), roundNum: r + 1, matches, waiting: restingIds, timestamp: Date.now() };
-    applyRound(round, r, players, shadow, groupCounts);
-    rounds.push(round);
-  }
-  return rounds;
-}
-
-// ---------- 8. 整体评分（供优化器使用，对候选赛程整体重新计算一次代价） ----------
-function fairnessCost(shadow) {
-  const counts = Object.values(shadow).map(s => s.gamesPlayed);
-  const diff = Math.max(...counts) - Math.min(...counts);
-  return diff > 1 ? Math.pow(diff - 1, 2) * SCHED_WEIGHTS.fairness : 0;
-}
-
-function byeSpreadCost(shadow, totalRounds) {
-  let cost = 0;
-  Object.values(shadow).forEach(s => {
-    const byeCount = s.byeRounds.length;
-    if (byeCount === 0) return;
-    const expectedGap = totalRounds / (byeCount + 1);
-    const points = [-1, ...s.byeRounds, totalRounds];
-    for (let i = 1; i < points.length; i++) {
-      cost += Math.pow(points[i] - points[i - 1] - expectedGap, 2);
-    }
-  });
-  return cost * SCHED_WEIGHTS.byeSpread / 100;
-}
-
-function evaluateSchedule(rounds, players, totalRounds) {
-  const shadow = createShadow(players);
-  const groupCounts = new Map();
-  let cost = 0;
-  rounds.forEach((round, roundIdx) => { cost += applyRound(round, roundIdx, players, shadow, groupCounts); });
-  cost += fairnessCost(shadow);
-  cost += byeSpreadCost(shadow, totalRounds);
-  return { cost, shadow };
-}
-
-// ---------- 9. 对阵优化（局部搜索：小范围随机调整 + 只接受更优方案） ----------
-function deepCloneRounds(rounds) {
-  return rounds.map(r => ({
-    ...r,
-    matches: r.matches.map(m => ({ ...m, teamA: [...m.teamA], teamB: [...m.teamB] })),
-    waiting: [...r.waiting],
-  }));
-}
-
-function mutateSchedule(rounds) {
-  const clone = deepCloneRounds(rounds);
-  const round = clone[Math.floor(Math.random() * clone.length)];
-  const kind = Math.floor(Math.random() * 4);
-
-  if (kind === 0 && round.waiting.length > 0 && round.matches.length > 0) {
-    // 上场 / 轮空互换
-    const match = round.matches[Math.floor(Math.random() * round.matches.length)];
-    const side = Math.random() < 0.5 ? 'teamA' : 'teamB';
-    const posIdx = Math.floor(Math.random() * 2);
-    const outId = match[side][posIdx];
-    const outPlayer = getPlayerById(outId);
-    const candidates = round.waiting
-      .map(getPlayerById)
-      .filter(p => STATE.mode !== 'mixed' || p.gender === outPlayer.gender);
-    if (candidates.length === 0) return null;
-    const inPlayer = candidates[Math.floor(Math.random() * candidates.length)];
-    match[side][posIdx] = inPlayer.id;
-    round.waiting = round.waiting.filter(id => id !== inPlayer.id);
-    round.waiting.push(outId);
-  } else if (kind === 1 && round.matches.length >= 1) {
-    // 同一场比赛内部重新分队
-    const match = round.matches[Math.floor(Math.random() * round.matches.length)];
-    const ai = Math.floor(Math.random() * 2), bi = Math.floor(Math.random() * 2);
-    if (STATE.mode === 'mixed') {
-      const ga = getPlayerById(match.teamA[ai]).gender;
-      const gb = getPlayerById(match.teamB[bi]).gender;
-      if (ga !== gb) return null; // 混双每队须保持一男一女
-    }
-    const tmp = match.teamA[ai];
-    match.teamA[ai] = match.teamB[bi];
-    match.teamB[bi] = tmp;
-  } else if (kind === 2 && round.matches.length >= 2) {
-    // 不同场地之间互换队员
-    const [m1, m2] = shuffle([...Array(round.matches.length).keys()]).slice(0, 2).map(i => round.matches[i]);
-    const side1 = Math.random() < 0.5 ? 'teamA' : 'teamB';
-    const side2 = Math.random() < 0.5 ? 'teamA' : 'teamB';
-    const p1 = Math.floor(Math.random() * 2), p2 = Math.floor(Math.random() * 2);
-    if (STATE.mode === 'mixed') {
-      if (getPlayerById(m1[side1][p1]).gender !== getPlayerById(m2[side2][p2]).gender) return null;
-    }
-    const tmp = m1[side1][p1];
-    m1[side1][p1] = m2[side2][p2];
-    m2[side2][p2] = tmp;
-  } else if (round.matches.length >= 2) {
-    // 互换两片场地编号（改善场地均衡）
-    const [m1, m2] = shuffle([...Array(round.matches.length).keys()]).slice(0, 2).map(i => round.matches[i]);
-    const tmp = m1.court; m1.court = m2.court; m2.court = tmp;
-  } else {
-    return null;
-  }
-  return clone;
-}
-
-function optimizeSchedule(rounds, players, totalRounds, iterations) {
-  let current = rounds;
-  let currentCost = evaluateSchedule(current, players, totalRounds).cost;
-  let best = current, bestCost = currentCost;
-
-  // 模拟退火：初期允许接受"稍差"的方案以跳出局部最优，
-  // 随着迭代推进逐渐降温、收紧为纯粹只接受更优方案。
-  // 由于公平性/连续轮空/连续比赛的权重远高于其它项，
-  // 破坏这些硬性规则会带来巨大代价差，实际上仍会被极大概率拒绝，
-  // 不会真正牺牲高优先级规则。
-  let temp = Math.max(1, currentCost * 0.03 + 50);
-  const coolingRate = Math.pow(0.01 / temp, 1 / iterations); // 使温度平滑降到低点
-
-  for (let i = 0; i < iterations; i++) {
-    const candidate = mutateSchedule(current);
-    if (!candidate) continue;
-    const candidateCost = evaluateSchedule(candidate, players, totalRounds).cost;
-    const delta = candidateCost - currentCost;
-    if (delta < 0 || Math.random() < Math.exp(-delta / temp)) {
-      current = candidate;
-      currentCost = candidateCost;
-      if (currentCost < bestCost) { best = current; bestCost = currentCost; }
-    }
-    temp *= coolingRate;
-  }
-  return best;
-}
-
-// ---------- 10. 规则检查（生成后自查，输出问题清单，便于持续优化） ----------
-function auditSchedule(rounds, players, totalRounds) {
-  const shadow = createShadow(players);
-  const groupCounts = new Map();
-  const issues = [];
-  let imbalancedMatches = 0, heavyRepeatPartners = 0, recentRepeatPartners = 0,
-      heavyRepeatOpponents = 0, recentRepeatOpponents = 0, repeatGroups = 0;
-
-  rounds.forEach((round, roundIdx) => {
-    const playingIds = new Set();
-    round.matches.forEach(m => [...m.teamA, ...m.teamB].forEach(id => playingIds.add(id)));
-    updatePlayBye(players, shadow, playingIds, roundIdx);
-
-    round.matches.forEach(m => {
-      const teamA = m.teamA.map(getPlayerById), teamB = m.teamB.map(getPlayerById);
-      const lvlA = teamA.reduce((s, p) => s + levelOf(p), 0);
-      const lvlB = teamB.reduce((s, p) => s + levelOf(p), 0);
-      if (STATE.balanceLevel && Math.abs(lvlA - lvlB) >= 4) imbalancedMatches++;
-
-      [
-        touchPair(shadow, teamA[0], teamA[1], roundIdx, 'partners', SCHED_WEIGHTS.partnerRepeat, SCHED_WEIGHTS.partnerRecent),
-        touchPair(shadow, teamB[0], teamB[1], roundIdx, 'partners', SCHED_WEIGHTS.partnerRepeat, SCHED_WEIGHTS.partnerRecent),
-      ].forEach(r => {
-        if (r.prevCount >= 2) heavyRepeatPartners++;
-        if (r.recentGap !== null && r.recentGap <= 2) recentRepeatPartners++;
-      });
-
-      teamA.forEach(a => teamB.forEach(b => {
-        const r = touchPair(shadow, a, b, roundIdx, 'opponents', SCHED_WEIGHTS.opponentRepeat, SCHED_WEIGHTS.opponentRecent);
-        if (r.prevCount >= 2) heavyRepeatOpponents++;
-        if (r.recentGap !== null && r.recentGap <= 1) recentRepeatOpponents++;
-      }));
-
-      const g = touchGroup(groupCounts, m);
-      if (g.prevCount >= 1) repeatGroups++;
-
-      touchCourt(shadow, [...m.teamA, ...m.teamB], m.court);
-    });
-  });
-
-  const counts = players.map(p => shadow[p.id].gamesPlayed);
-  const maxG = Math.max(...counts), minG = Math.min(...counts);
-  if (maxG - minG > 1) issues.push(`上场次数不均衡：最多 ${maxG} 场，最少 ${minG} 场`);
-
-  players.forEach(p => {
-    const s = shadow[p.id];
-    if (s.maxConsecutiveByes > 2) issues.push(`${p.name} 曾连续轮空 ${s.maxConsecutiveByes} 轮`);
-    if (s.maxConsecutivePlays > 3) issues.push(`${p.name} 曾连续比赛 ${s.maxConsecutivePlays} 轮`);
-  });
-
-  if (imbalancedMatches > 0) issues.push(`存在 ${imbalancedMatches} 场实力明显失衡的比赛`);
-  if (heavyRepeatPartners > 0) issues.push(`存在 ${heavyRepeatPartners} 次同一搭档组合被安排 3 次及以上`);
-  if (recentRepeatPartners > 0) issues.push(`存在 ${recentRepeatPartners} 次近期（2 轮内）重复搭档`);
-  if (heavyRepeatOpponents > 0) issues.push(`存在 ${heavyRepeatOpponents} 次同一对手组合交手 3 次及以上`);
-  if (recentRepeatOpponents > 0) issues.push(`存在 ${recentRepeatOpponents} 次连续对阵同一对手`);
-  if (repeatGroups > 0) issues.push(`存在 ${repeatGroups} 次相同 4 人组合被重复安排在同一场比赛`);
-
-  const allCourts = rounds.flatMap(r => r.matches.map(m => m.court));
-  if (new Set(allCourts).size > 1) {
-    players.forEach(p => {
-      const cs = Object.values(shadow[p.id].courts);
-      if (cs.length > 1 && Math.max(...cs) - Math.min(...cs) > 2) {
-        issues.push(`${p.name} 在各片场地的出场次数差距较大`);
+/** 穷举所有步长，找满足连续性+公平性且多样性最高的步长 */
+function findBestStep(n, slots, totalRounds) {
+  let best = null, bestScore = -1;
+  for (let s = 1; s < n; s++) {
+    const plays=new Array(n).fill(0),byes=new Array(n).fill(0),counts=new Array(n).fill(0);
+    let valid=true,pos=0;
+    for(let r=0;r<totalRounds;r++){
+      const playing=new Set();
+      for(let i=0;i<slots;i++) playing.add((pos+i)%n);
+      for(let i=0;i<n;i++){
+        if(playing.has(i)){plays[i]++;byes[i]=0;counts[i]++;if(plays[i]>3){valid=false;break;}}
+        else{byes[i]++;plays[i]=0;if(byes[i]>2){valid=false;break;}}
       }
+      if(!valid) break;
+      pos=(pos+s)%n;
+    }
+    if(!valid) continue;
+    const diff=Math.max(...counts)-Math.min(...counts);
+    if(diff>1) continue;
+    const groups=new Set();
+    pos=0;
+    for(let r=0;r<totalRounds;r++){
+      const g=[];for(let i=0;i<slots;i++) g.push((pos+i)%n);
+      groups.add(g.sort((a,b)=>a-b).join(','));pos=(pos+s)%n;
+    }
+    const score=(diff===0?1000:0)+groups.size*10-Math.abs(s-slots/2);
+    if(score>bestScore){bestScore=score;best={step:s,diversity:groups.size,diff};}
+  }
+  return best;
+}
+
+/** 约束满足贪心生成器（兜底） */
+function greedyRosters(players, slots, totalRounds) {
+  const n=players.length;
+  const totalSlots=totalRounds*slots;
+  const baseGames=Math.floor(totalSlots/n),extraCount=totalSlots%n;
+  const order=shuffle([...players]);
+  const maxGames={};
+  order.forEach((p,i)=>maxGames[p.id]=i<extraCount?baseGames+1:baseGames);
+  const played={},cPlay={},cBye={},shared={};
+  players.forEach(p=>{played[p.id]=0;cPlay[p.id]=0;cBye[p.id]=0;shared[p.id]={};});
+  const rosters=[];
+  for(let r=0;r<totalRounds;r++){
+    const remaining=totalRounds-r;
+    const budget=p=>maxGames[p.id]-played[p.id];
+    const mustPlay=shuffle(players.filter(p=>cBye[p.id]>=2&&budget(p)>0&&cPlay[p.id]<3));
+    const hardRest=new Set(players.filter(p=>cPlay[p.id]>=3||budget(p)===0).map(p=>p.id));
+    let forced=mustPlay.filter(p=>!hardRest.has(p.id));
+    if(forced.length>slots) forced=forced.sort((a,b)=>cBye[b.id]-cBye[a.id]).slice(0,slots);
+    const forcedSet=new Set(forced.map(p=>p.id));
+    const need=slots-forced.length;
+    let pool=shuffle(players.filter(p=>!forcedSet.has(p.id)&&!hardRest.has(p.id)&&budget(p)>0));
+    const alreadyIds=forced.map(p=>p.id);
+    pool.sort((a,b)=>{
+      if(cBye[a.id]!==cBye[b.id]) return cBye[b.id]-cBye[a.id];
+      const sA=alreadyIds.reduce((s,id)=>s+(shared[a.id][id]||0),0);
+      const sB=alreadyIds.reduce((s,id)=>s+(shared[b.id][id]||0),0);
+      return sA-sB;
     });
+    const selected=pool.slice(0,need);
+    if(selected.length<need){
+      const em=shuffle(players.filter(p=>!forcedSet.has(p.id)&&!selected.find(x=>x.id===p.id)))
+        .sort((a,b)=>cBye[b.id]-cBye[a.id]);
+      for(const p of em){if(selected.length>=need)break;selected.push(p);}
+    }
+    const playing=[...forced,...selected];
+    const pSet=new Set(playing.map(p=>p.id));
+    const resting=players.filter(p=>!pSet.has(p.id));
+    rosters.push({playing,resting});
+    playing.forEach(p=>{
+      played[p.id]++;cPlay[p.id]++;cBye[p.id]=0;
+      playing.forEach(q=>{if(q.id!==p.id)shared[p.id][q.id]=(shared[p.id][q.id]||0)+1;});
+    });
+    resting.forEach(p=>{cBye[p.id]++;cPlay[p.id]=0;});
+  }
+  return rosters;
+}
+
+/** 主入口：轮转窗口 + 贪心 混合策略，取多样性更高的结果 */
+function buildRosters(players, slots, totalRounds) {
+  const n=players.length;
+  if(n<=slots) return Array.from({length:totalRounds},()=>({playing:[...players],resting:[]}));
+
+  const info=findBestStep(n,slots,totalRounds);
+  const RESTARTS=8;
+  let bestRosters=null,bestDiversity=-1;
+
+  // 策略1：轮转窗口（多样性由步长决定）
+  if(info){
+    for(let t=0;t<RESTARTS;t++){
+      const order=shuffle([...players]);
+      const rosters=[];let pos=0;
+      for(let r=0;r<totalRounds;r++){
+        const pSet=new Set();
+        for(let i=0;i<slots;i++) pSet.add(order[(pos+i)%n].id);
+        rosters.push({playing:order.filter(p=>pSet.has(p.id)),resting:order.filter(p=>!pSet.has(p.id))});
+        pos=(pos+info.step)%n;
+      }
+      const gs=new Set();
+      rosters.forEach(r=>gs.add(r.playing.map(p=>p.id).sort().join(',')));
+      if(gs.size>bestDiversity){bestDiversity=gs.size;bestRosters=rosters;}
+    }
   }
 
+  // 策略2：贪心（多样性由同场历史驱动，与策略1互补）
+  // 若策略1的多样性 < totalRounds（说明有重复），或没有合法步长，也跑贪心对比
+  if(!info || bestDiversity < Math.min(totalRounds, /* C(n,slots) */ 1)) {
+    for(let t=0;t<RESTARTS;t++){
+      const rosters=greedyRosters(players,slots,totalRounds);
+      const gs=new Set();
+      rosters.forEach(r=>gs.add(r.playing.map(p=>p.id).sort().join(',')));
+      if(gs.size>bestDiversity){bestDiversity=gs.size;bestRosters=rosters;}
+    }
+  }
+
+  return bestRosters;
+}
+
+/** 为混双模式分别生成男/女上场名单，再合并 */
+function buildAllRosters(players, courts, totalRounds) {
+  if(STATE.mode==='mixed'){
+    const males=players.filter(p=>p.gender==='M');
+    const females=players.filter(p=>p.gender==='F');
+    const mR=buildRosters(males,courts*2,totalRounds);
+    const fR=buildRosters(females,courts*2,totalRounds);
+    if(!mR||!fR) return null;
+    return mR.map((mr,i)=>({playing:[...mr.playing,...fR[i].playing],resting:[...mr.resting,...fR[i].resting]}));
+  }
+  return buildRosters(players,courts*4,totalRounds);
+}
+
+// ---------- 6. 场地分配 ----------
+function assignGroups(playing, courts, shadow) {
+  const isDouble = STATE.mode!=='mixed';
+  let best=null,bestCost=Infinity;
+  for(let a=0;a<60;a++){
+    const shuf=shuffle(playing);
+    const courtOrder=shuffle([...Array(courts).keys()].map(i=>i+1));
+    let cost=0;
+    if(isDouble){
+      const groups=[];
+      for(let c=0;c<courts;c++) groups.push({courtNum:courtOrder[c],group:shuf.slice(c*4,c*4+4)});
+      groups.forEach(g=>{
+        cost+=bestTeamSplit(g.group,shadow).cost;
+        g.group.forEach((p,i)=>g.group.forEach((q,j)=>{if(j>i)cost+=(shadow[p.id].sharedCourt[q.id]||0)*200;}));
+        g.group.forEach(p=>cost+=(shadow[p.id].courts[g.courtNum]||0)*SCHED_WEIGHTS.courtBalance);
+      });
+      if(cost<bestCost){bestCost=cost;best={mode:'double',groups};}
+    } else {
+      const males=shuf.filter(p=>p.gender==='M'),females=shuf.filter(p=>p.gender==='F');
+      const groups=[];
+      for(let c=0;c<courts;c++) groups.push({courtNum:courtOrder[c],males:males.slice(c*2,c*2+2),females:females.slice(c*2,c*2+2)});
+      groups.forEach(g=>{
+        const all=[...g.males,...g.females];
+        cost+=bestMixedSplit(g.males,g.females,shadow).cost;
+        all.forEach((p,i)=>all.forEach((q,j)=>{if(j>i)cost+=(shadow[p.id].sharedCourt[q.id]||0)*200;}));
+        all.forEach(p=>cost+=(shadow[p.id].courts[g.courtNum]||0)*SCHED_WEIGHTS.courtBalance);
+      });
+      if(cost<bestCost){bestCost=cost;best={mode:'mixed',groups};}
+    }
+  }
+  return best;
+}
+
+// ---------- 7. 完整赛程生成 ----------
+function buildSchedule(players, courts, totalRounds) {
+  const rosters=buildAllRosters(players,courts,totalRounds);
+  if(!rosters) return null;
+  const shadow=createShadow(players);
+  const playerMap=new Map(players.map(p=>[p.id,p]));
+  const rounds=[];
+
+  rosters.forEach((roster,roundIdx)=>{
+    const {playing,resting}=roster;
+    const playingIds=new Set(playing.map(p=>p.id));
+    const assigned=assignGroups(playing,courts,shadow);
+    if(!assigned) return;
+
+    let matches;
+    if(assigned.mode==='double'){
+      matches=assigned.groups.map(g=>{const split=bestTeamSplit(g.group,shadow);return makeMatch(g.courtNum,split.tA,split.tB);});
+    } else {
+      matches=assigned.groups.map(g=>{const split=bestMixedSplit(g.males,g.females,shadow);return makeMatch(g.courtNum,split.tA,split.tB);});
+    }
+
+    updateShadow(shadow,playingIds,players.map(p=>p.id),roundIdx);
+    matches.forEach(m=>{
+      const tA=m.teamA.map(id=>playerMap.get(id)),tB=m.teamB.map(id=>playerMap.get(id));
+      touchPair(shadow,tA[0],tA[1],roundIdx,'partners');
+      touchPair(shadow,tB[0],tB[1],roundIdx,'partners');
+      tA.forEach(a=>tB.forEach(b=>touchPair(shadow,a,b,roundIdx,'opponents')));
+      recordSharedCourt(shadow,[...m.teamA,...m.teamB]);
+      [...m.teamA,...m.teamB].forEach(id=>shadow[id].courts[m.court]=(shadow[id].courts[m.court]||0)+1);
+    });
+
+    rounds.push({id:genId(),roundNum:roundIdx+1,matches,waiting:resting.map(p=>p.id),timestamp:Date.now()});
+  });
+  return {rounds,shadow};
+}
+
+// ---------- 8. 规则检查 ----------
+function auditSchedule(rounds, players, totalRounds) {
+  const playerMap=new Map(players.map(p=>[p.id,p]));
+  const shadow=createShadow(players);
+  const issues=[];
+  let imb=0,hP=0,rP=0,hO=0,rO=0,repG=0;
+  const gc=new Map();
+
+  rounds.forEach((round,roundIdx)=>{
+    const pi=new Set(round.matches.flatMap(m=>[...m.teamA,...m.teamB]));
+    updateShadow(shadow,pi,players.map(p=>p.id),roundIdx);
+    round.matches.forEach(m=>{
+      const tA=m.teamA.map(id=>playerMap.get(id)),tB=m.teamB.map(id=>playerMap.get(id));
+      if(STATE.balanceLevel){const lA=tA.reduce((s,p)=>s+levelOf(p),0),lB=tB.reduce((s,p)=>s+levelOf(p),0);if(Math.abs(lA-lB)>=4)imb++;}
+      [{a:tA[0],b:tA[1]},{a:tB[0],b:tB[1]}].forEach(({a,b})=>{
+        const r=touchPair(shadow,a,b,roundIdx,'partners');
+        if(r.prev>=2)hP++;if(r.recentGap!==null&&r.recentGap<=2)rP++;
+      });
+      tA.forEach(a=>tB.forEach(b=>{const r=touchPair(shadow,a,b,roundIdx,'opponents');if(r.prev>=2)hO++;if(r.recentGap!==null&&r.recentGap<=1)rO++;}));
+      const key=[...m.teamA,...m.teamB].sort().join(',');const prev=gc.get(key)||0;if(prev>=1)repG++;gc.set(key,prev+1);
+      recordSharedCourt(shadow,[...m.teamA,...m.teamB]);
+    });
+  });
+
+  const counts=players.map(p=>shadow[p.id].gamesPlayed);
+  if(Math.max(...counts)-Math.min(...counts)>1) issues.push(`上场次数不均衡：最多${Math.max(...counts)}场，最少${Math.min(...counts)}场`);
+  players.forEach(p=>{
+    const s=shadow[p.id];
+    if(s.maxConsecutiveByes>2) issues.push(`${p.name}曾连续轮空${s.maxConsecutiveByes}轮`);
+    if(s.maxConsecutivePlays>3) issues.push(`${p.name}曾连续比赛${s.maxConsecutivePlays}轮`);
+  });
+  if(imb>0) issues.push(`存在${imb}场实力明显失衡的比赛`);
+  if(hP>0)  issues.push(`存在${hP}次同一搭档被安排3次及以上`);
+  if(rP>0)  issues.push(`存在${rP}次近期(2轮内)重复搭档`);
+  if(hO>0)  issues.push(`存在${hO}次同一对手交手3次及以上`);
+  if(rO>0)  issues.push(`存在${rO}次连续对阵同一对手`);
+  if(repG>0) issues.push(`存在${repG}次相同4人组合重复安排在同一场比赛`);
   return issues;
 }
 
-// ---------- 11. 对外入口 ----------
+// ---------- 9. 对外入口 ----------
 function generateSchedule(players, courts, totalRounds) {
-  const iterations = Math.min(6000, Math.max(1200, players.length * totalRounds * 12));
-  const restarts = players.length * totalRounds <= 200 ? 3 : 1; // 规模较小时多次重启取最优，规模大时控制耗时
+  const OUTER_RESTARTS = totalRounds * players.length <= 200 ? 5 : 2;
+  let bestRounds=null,bestDiversity=-1,bestIssues=null;
 
-  let bestRounds = null, bestCost = Infinity;
-  for (let r = 0; r < restarts; r++) {
-    let candidate = buildInitialSchedule(players, courts, totalRounds);
-    candidate = optimizeSchedule(candidate, players, totalRounds, iterations);
-    const cost = evaluateSchedule(candidate, players, totalRounds).cost;
-    if (cost < bestCost) { bestCost = cost; bestRounds = candidate; }
+  for(let t=0;t<OUTER_RESTARTS;t++){
+    const result=buildSchedule(players,courts,totalRounds);
+    if(!result) continue;
+    const {rounds}=result;
+    const gs=new Set();
+    rounds.forEach(r=>r.matches.forEach(m=>gs.add([...m.teamA,...m.teamB].sort().join(','))));
+    if(gs.size>bestDiversity){
+      bestDiversity=gs.size;bestRounds=rounds;
+      bestIssues=auditSchedule(rounds,players,totalRounds);
+    }
   }
 
-  const issues = auditSchedule(bestRounds, players, totalRounds);
-  if (issues.length) {
-    console.warn('[排阵检查] 已尽量优化，但仍存在以下问题：\n' + issues.map(s => '- ' + s).join('\n'));
+  if(!bestRounds){
+    console.warn('[排阵] 无法生成满足约束的赛程');
+    return [];
+  }
+  if(bestIssues&&bestIssues.length){
+    console.warn('[排阵检查] 已尽量优化，仍存在以下问题：\n'+bestIssues.map(s=>'- '+s).join('\n'));
   } else {
     console.log('[排阵检查] ✅ 未发现明显问题');
   }
-
   return bestRounds;
 }
 
-// =====================================================
+
 // 开始比赛
 // =====================================================
 function startTournament() {
