@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>一拍赛事pro</title>
+  <title>一拍赛事</title>
   <style>
     /* ===== 全局 ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -910,7 +910,12 @@
 <div class="page" id="page-library">
   <div class="card">
     <div class="card-title"><span class="icon">👤</span> 球员库 <span class="chip chip-green" id="libraryCountBadge" style="margin-left:auto">0 人</span></div>
-    <div style="font-size:.78rem;color:var(--gray-500);margin-bottom:10px;">记录所有参赛选手的历史成绩与排名，随每次比赛结束自动累积；管理员可编辑或删除选手。</div>
+    <div style="font-size:.78rem;color:var(--gray-500);margin-bottom:10px;">参加过比赛的选手自动入库，历史成绩持久累积，清空参赛名单不影响库中数据。</div>
+    <!-- 管理员操作栏 -->
+    <div id="libraryAdminBar" style="display:none;margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" onclick="openAddLibraryPlayer()">➕ 新增球员</button>
+      <button class="btn btn-outline btn-sm" onclick="syncLibraryFromPlayers()">🔄 从当前名单同步到库</button>
+    </div>
     <table class="stat-table">
       <thead>
         <tr>
@@ -981,6 +986,88 @@
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('tempPwdModal')">取消</button>
       <button class="btn btn-primary" onclick="saveTempPwd()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 球员库：新增球员弹窗 -->
+<div class="modal-overlay" id="addLibraryPlayerModal">
+  <div class="modal">
+    <div class="modal-title">➕ 新增球员到库</div>
+    <div class="modal-field-label">姓名</div>
+    <input type="text" id="libNewName" maxlength="12" placeholder="输入姓名" />
+    <div class="modal-field-label">性别</div>
+    <div id="libNewGenderGroup" class="toggle-group" style="margin-bottom:12px;">
+      <button id="libGM" class="active" onclick="selectLibNewGender('M')">♂ 男</button>
+      <button id="libGF" onclick="selectLibNewGender('F')">♀ 女</button>
+    </div>
+    <div class="modal-field-label">等级</div>
+    <select id="libNewLevel">
+      <option value="0.5">Lv0.5</option>
+      <option value="1">Lv1</option>
+      <option value="1.5">Lv1.5</option>
+      <option value="2">Lv2</option>
+      <option value="2.5">Lv2.5</option>
+      <option value="3" selected>Lv3</option>
+      <option value="3.5">Lv3.5</option>
+      <option value="4">Lv4</option>
+      <option value="4.5">Lv4.5</option>
+      <option value="5">Lv5</option>
+      <option value="5.5">Lv5.5</option>
+      <option value="6">Lv6</option>
+      <option value="6.5">Lv6.5</option>
+      <option value="7">Lv7</option>
+      <option value="7.5">Lv7.5+</option>
+    </select>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('addLibraryPlayerModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveAddLibraryPlayer()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 球员库：编辑球员弹窗 -->
+<div class="modal-overlay" id="editLibraryPlayerModal">
+  <div class="modal">
+    <div class="modal-title">✎ 编辑球员库成员</div>
+    <div class="modal-field-label">姓名</div>
+    <input type="text" id="libEditName" maxlength="12" />
+    <div class="modal-field-label">性别</div>
+    <div id="libEditGenderGroup" class="toggle-group" style="margin-bottom:12px;">
+      <button id="libEgM" class="active" onclick="selectLibEditGender('M')">♂ 男</button>
+      <button id="libEgF" onclick="selectLibEditGender('F')">♀ 女</button>
+    </div>
+    <div class="modal-field-label">等级</div>
+    <select id="libEditLevel">
+      <option value="0.5">Lv0.5</option>
+      <option value="1">Lv1</option>
+      <option value="1.5">Lv1.5</option>
+      <option value="2">Lv2</option>
+      <option value="2.5">Lv2.5</option>
+      <option value="3">Lv3</option>
+      <option value="3.5">Lv3.5</option>
+      <option value="4">Lv4</option>
+      <option value="4.5">Lv4.5</option>
+      <option value="5">Lv5</option>
+      <option value="5.5">Lv5.5</option>
+      <option value="6">Lv6</option>
+      <option value="6.5">Lv6.5</option>
+      <option value="7">Lv7</option>
+      <option value="7.5">Lv7.5+</option>
+    </select>
+    <div class="modal-field-label" style="margin-top:4px;">累计成绩（可手动修正）</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+      <div><div class="modal-field-label">参赛届数</div><input type="number" id="libEditTournaments" min="0" style="margin-bottom:0;" /></div>
+      <div><div class="modal-field-label">累计场次</div><input type="number" id="libEditGames" min="0" style="margin-bottom:0;" /></div>
+      <div><div class="modal-field-label">累计胜场</div><input type="number" id="libEditWins" min="0" style="margin-bottom:0;" /></div>
+      <div><div class="modal-field-label">累计得分</div><input type="number" id="libEditPoints" min="0" style="margin-bottom:0;" /></div>
+    </div>
+    <div class="modal-delete-row">
+      <button class="btn btn-danger btn-sm" onclick="deleteLibraryPlayer()">🗑 从球员库删除</button>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('editLibraryPlayerModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveEditLibraryPlayer()">保存</button>
     </div>
   </div>
 </div>
@@ -1178,8 +1265,11 @@ const STATE = {
   activeRound: 0,       // 当前最新轮次索引
   scoreModalCtx: null,  // {roundIdx, matchIdx}
   editPlayerId: null,   // 当前正在编辑的选手 id
-  tournamentHistory: [], // 赛事历史库：[{id, seq, title, date, mode, courts, totalRounds, setsPerMatch, participants:[...]}]
-  tournamentCounter: 0,  // 累计已归档的赛事数（用于命名"第N届"）
+  tournamentHistory: [], // 赛事历史库
+  tournamentCounter: 0,  // 累计已归档的赛事数
+  // 独立球员库：与 players 解耦，清空当场名单不影响库；key = player id
+  // 每条记录: {id, name, gender, level, career:{tournaments,games,wins,points,firstAt,lastAt}}
+  playerLibrary: {},
   _syncing: false,      // 防止 Firebase 回调覆盖本地写入
 };
 
@@ -1231,6 +1321,10 @@ window.syncFromRemote = function(data) {
     STATE.tournamentHistory = list;
     STATE.tournamentCounter = data.history.counter ?? STATE.tournamentCounter;
   }
+  // 同步独立球员库
+  if (data.playerLibrary) {
+    STATE.playerLibrary = typeof data.playerLibrary === 'object' ? data.playerLibrary : {};
+  }
 
   renderAll();
 };
@@ -1254,6 +1348,7 @@ function pushToFirebase() {
     window._fbSet('players', playersObj);
     window._fbSet('rounds', STATE.rounds);
     window._fbSet('history', { list: STATE.tournamentHistory, counter: STATE.tournamentCounter });
+    window._fbSet('playerLibrary', STATE.playerLibrary);
   } catch(e) {
     console.warn('Firebase 写入失败:', e);
   } finally {
@@ -1461,11 +1556,12 @@ function batchImport() {
 }
 
 function clearAllPlayers() {
-  if (!confirm('确定清空所有人员？')) return;
+  if (!confirm('确定清空参赛名单？球员库中的历史数据不受影响。')) return;
   STATE.players = [];
   renderPlayers();
   updatePlayerCount();
   pushToFirebase();
+  showToast('已清空参赛名单（球员库保留）');
 }
 
 // 临时选中的编辑弹窗性别
@@ -2734,39 +2830,43 @@ function ensureCareer(p) {
 function renderPlayerLibrary() {
   const tbody = document.getElementById('libraryTbody');
   const badge = document.getElementById('libraryCountBadge');
-  const players = STATE.players;
-  if (badge) badge.textContent = players.length + ' 人';
+  const adminBar = document.getElementById('libraryAdminBar');
+
+  const lib = STATE.playerLibrary || {};
+  const entries = Object.values(lib);
+
+  if (badge) badge.textContent = entries.length + ' 人';
+  if (adminBar) adminBar.style.display = STATE.isAdmin ? 'flex' : 'none';
 
   if (!tbody) return;
-  if (players.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:20px;">暂无球员数据</td></tr>';
+  if (entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:20px;">暂无球员数据，结束一场比赛后自动入库</td></tr>';
     return;
   }
 
-  const rows = players.map(p => ({ p, c: ensureCareer(p) }));
-  const sorted = [...rows].sort((a, b) => {
-    if (b.c.wins !== a.c.wins) return b.c.wins - a.c.wins;
-    if (b.c.points !== a.c.points) return b.c.points - a.c.points;
-    return b.c.games - a.c.games;
+  const sorted = [...entries].sort((a, b) => {
+    const ca = a.career || {}, cb = b.career || {};
+    if ((cb.wins||0) !== (ca.wins||0)) return (cb.wins||0) - (ca.wins||0);
+    if ((cb.points||0) !== (ca.points||0)) return (cb.points||0) - (ca.points||0);
+    return (cb.games||0) - (ca.games||0);
   });
 
-  const canManage = STATE.isAdmin;
-
-  tbody.innerHTML = sorted.map(({ p, c }, i) => {
+  tbody.innerHTML = sorted.map((entry, i) => {
+    const c = entry.career || {};
     const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
     const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
-    const winRate = c.games > 0 ? Math.round(c.wins / c.games * 100) : 0;
+    const winRate = (c.games||0) > 0 ? Math.round((c.wins||0) / c.games * 100) : 0;
     const lastAtStr = c.lastAt ? new Date(c.lastAt).toLocaleDateString('zh-CN') : '-';
-    const manageBtn = canManage
-      ? `<button class="player-edit-btn" style="position:static;font-size:.9rem;" onclick="openEditPlayer('${p.id}')" title="编辑/删除">✎</button>`
+    const manageBtn = STATE.isAdmin
+      ? `<button class="player-edit-btn" style="position:static;font-size:.9rem;" onclick="openEditLibraryPlayer('${entry.id}')" title="编辑">✎</button>`
       : '';
     return `<tr>
       <td class="stat-rank ${rankClass}">${rankIcon}</td>
-      <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
-      <td>${p.level || 3}</td>
-      <td>${c.tournaments}</td>
-      <td>${c.games}</td>
-      <td>${c.wins}</td>
+      <td><b>${escHtml(entry.name)}</b>${entry.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+      <td>${entry.level || 3}</td>
+      <td>${c.tournaments||0}</td>
+      <td>${c.games||0}</td>
+      <td>${c.wins||0}</td>
       <td>${winRate}%</td>
       <td style="font-size:.75rem;color:var(--gray-400);">${lastAtStr}</td>
       <td>${manageBtn}</td>
@@ -2775,8 +2875,145 @@ function renderPlayerLibrary() {
 }
 
 // =====================================================
-// 赛事历史库
+// 球员库管理（独立于参赛名单）
 // =====================================================
+let libNewGenderVal = 'M';
+let libEditGenderVal = 'M';
+let libEditingId = null;
+
+function selectLibNewGender(g) {
+  libNewGenderVal = g;
+  document.getElementById('libGM').classList.toggle('active', g === 'M');
+  document.getElementById('libGF').classList.toggle('active', g === 'F');
+}
+
+function selectLibEditGender(g) {
+  libEditGenderVal = g;
+  document.getElementById('libEgM').classList.toggle('active', g === 'M');
+  document.getElementById('libEgF').classList.toggle('active', g === 'F');
+}
+
+function openAddLibraryPlayer() {
+  if (!requireAdmin()) return;
+  document.getElementById('libNewName').value = '';
+  libNewGenderVal = 'M';
+  document.getElementById('libGM').classList.add('active');
+  document.getElementById('libGF').classList.remove('active');
+  document.getElementById('libNewLevel').value = '3';
+  openModal('addLibraryPlayerModal');
+}
+
+function saveAddLibraryPlayer() {
+  const name = document.getElementById('libNewName').value.trim();
+  if (!name) { showToast('请输入姓名'); return; }
+  // 检查名字是否已在库中
+  const dup = Object.values(STATE.playerLibrary).find(e => e.name === name);
+  if (dup) { showToast('球员库中已有同名球员'); return; }
+  const level = parseFloat(document.getElementById('libNewLevel').value) || 3;
+  const id = genId();
+  STATE.playerLibrary[id] = {
+    id, name, gender: libNewGenderVal, level,
+    career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
+  };
+  closeModal('addLibraryPlayerModal');
+  pushToFirebase();
+  renderPlayerLibrary();
+  showToast(`✅ 已将「${name}」添加到球员库`);
+}
+
+function openEditLibraryPlayer(id) {
+  if (!requireAdmin()) return;
+  const entry = STATE.playerLibrary[id];
+  if (!entry) return;
+  libEditingId = id;
+  document.getElementById('libEditName').value = entry.name;
+  libEditGenderVal = entry.gender || 'M';
+  document.getElementById('libEgM').classList.toggle('active', libEditGenderVal === 'M');
+  document.getElementById('libEgF').classList.toggle('active', libEditGenderVal === 'F');
+  document.getElementById('libEditLevel').value = String(entry.level || 3);
+  const c = entry.career || {};
+  document.getElementById('libEditTournaments').value = c.tournaments || 0;
+  document.getElementById('libEditGames').value = c.games || 0;
+  document.getElementById('libEditWins').value = c.wins || 0;
+  document.getElementById('libEditPoints').value = c.points || 0;
+  openModal('editLibraryPlayerModal');
+}
+
+function saveEditLibraryPlayer() {
+  if (!libEditingId) return;
+  const entry = STATE.playerLibrary[libEditingId];
+  if (!entry) { closeModal('editLibraryPlayerModal'); return; }
+
+  const name = document.getElementById('libEditName').value.trim();
+  if (!name) { showToast('请输入姓名'); return; }
+  const dup = Object.values(STATE.playerLibrary).find(e => e.name === name && e.id !== libEditingId);
+  if (dup) { showToast('球员库中已有同名球员'); return; }
+
+  entry.name   = name;
+  entry.gender = libEditGenderVal;
+  entry.level  = parseFloat(document.getElementById('libEditLevel').value) || 3;
+  const c = entry.career || (entry.career = {});
+  c.tournaments = parseInt(document.getElementById('libEditTournaments').value) || 0;
+  c.games       = parseInt(document.getElementById('libEditGames').value) || 0;
+  c.wins        = parseInt(document.getElementById('libEditWins').value) || 0;
+  c.points      = parseInt(document.getElementById('libEditPoints').value) || 0;
+
+  // 同步更新参赛名单中同一球员的名字/等级（如果还在名单里）
+  const inRoster = STATE.players.find(p => p.id === libEditingId);
+  if (inRoster) {
+    inRoster.name   = entry.name;
+    inRoster.gender = entry.gender;
+    inRoster.level  = entry.level;
+  }
+
+  closeModal('editLibraryPlayerModal');
+  pushToFirebase();
+  renderPlayerLibrary();
+  renderPlayers();
+  showToast('✅ 已保存');
+}
+
+function deleteLibraryPlayer() {
+  if (!libEditingId) return;
+  const entry = STATE.playerLibrary[libEditingId];
+  if (!entry) return;
+  if (!confirm(`确定将「${entry.name}」从球员库中删除？历史赛事记录不受影响，但累计成绩将清除。`)) return;
+  delete STATE.playerLibrary[libEditingId];
+  closeModal('editLibraryPlayerModal');
+  pushToFirebase();
+  renderPlayerLibrary();
+  showToast('已删除');
+}
+
+/**
+ * 管理员手动把当前参赛名单里有过历史数据（career）的人同步到球员库。
+ * 用于首次使用新版本、或名单和库脱节时的一键补救。
+ */
+function syncLibraryFromPlayers() {
+  if (!requireAdmin()) return;
+  let added = 0, updated = 0;
+  STATE.players.forEach(p => {
+    const c = p.career;
+    if (!c || c.tournaments === 0) return; // 没参加过比赛的不同步
+    if (STATE.playerLibrary[p.id]) {
+      // 已在库中：以库中数据为准，只更新姓名/性别/等级
+      STATE.playerLibrary[p.id].name   = p.name;
+      STATE.playerLibrary[p.id].gender = p.gender;
+      STATE.playerLibrary[p.id].level  = p.level || 3;
+      updated++;
+    } else {
+      // 不在库中：整体写入
+      STATE.playerLibrary[p.id] = {
+        id: p.id, name: p.name, gender: p.gender, level: p.level || 3,
+        career: { ...c },
+      };
+      added++;
+    }
+  });
+  pushToFirebase();
+  renderPlayerLibrary();
+  showToast(`同步完成：新增 ${added} 人，更新 ${updated} 人`);
+}
 
 /**
  * 归档当前比赛：生成快照写入历史库，并把本场数据累加进每位选手的 career 统计。
@@ -2809,17 +3046,36 @@ function archiveCurrentTournament(silent) {
   };
   STATE.tournamentHistory = [record, ...STATE.tournamentHistory];
 
-  // 累加进每位参赛选手的 career 数据
+  // 累加进每位参赛选手的 career 数据（写入独立球员库）
   participants.forEach(part => {
-    const p = STATE.players.find(x => x.id === part.id);
-    if (!p) return;
-    const c = ensureCareer(p);
+    // 写入 playerLibrary（独立库，清空 players 不影响）
+    const existing = STATE.playerLibrary[part.id] || {
+      id: part.id, name: part.name, gender: part.gender, level: part.level || 3,
+      career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
+    };
+    existing.name = part.name;     // 同步最新姓名/等级（可能被编辑过）
+    existing.gender = part.gender;
+    existing.level = part.level || 3;
+    const c = existing.career;
     c.tournaments += 1;
     c.games += part.totalGames;
     c.wins += part.wins;
     c.points += part.points;
     if (!c.firstAt) c.firstAt = now;
     c.lastAt = now;
+    STATE.playerLibrary[part.id] = existing;
+
+    // 同步写回 STATE.players（兼容当场统计视图）
+    const p = STATE.players.find(x => x.id === part.id);
+    if (p) {
+      const pc = ensureCareer(p);
+      pc.tournaments = (existing.career.tournaments);
+      pc.games = existing.career.games;
+      pc.wins = existing.career.wins;
+      pc.points = existing.career.points;
+      pc.firstAt = existing.career.firstAt;
+      pc.lastAt = existing.career.lastAt;
+    }
   });
 
   // 重置本场比赛数据，准备下一场
@@ -2931,6 +3187,8 @@ function toggleAdmin() {
     STATE.isAdmin = false;
     STATE.isScorer = false;
     updateAdminBtnLabel();
+    const libBar = document.getElementById('libraryAdminBar');
+    if (libBar) libBar.style.display = 'none';
     showToast('已退出登录');
     renderMatchPage();
     return;
@@ -2946,6 +3204,8 @@ function verifyAdmin() {
     document.getElementById('adminError').style.display = 'none';
     document.getElementById('adminPwdInput').value = '';
     updateAdminBtnLabel();
+    const libBar = document.getElementById('libraryAdminBar');
+    if (libBar) libBar.style.display = 'flex';
     closeModal('adminModal');
     showToast('✅ 管理员模式已开启');
     renderMatchPage();
@@ -3068,6 +3328,9 @@ function renderAll() {
   document.getElementById('balanceOff').classList.toggle('active', !STATE.balanceLevel);
   renderTempPwdStatus();
   updateAdminBtnLabel();
+  // 同步球员库管理栏可见性
+  const libBar = document.getElementById('libraryAdminBar');
+  if (libBar) libBar.style.display = STATE.isAdmin ? 'flex' : 'none';
 
   const activePage = document.querySelector('.page.active')?.id;
   if (activePage === 'page-match') renderMatchPage();
