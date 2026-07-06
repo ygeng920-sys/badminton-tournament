@@ -589,6 +589,29 @@
     .conn-dot.online { background: #4ade80; }
     .conn-dot.offline { background: #f87171; }
 
+    /* ===== 调整对阵弹窗 ===== */
+    .adjust-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all .15s;
+      user-select: none;
+    }
+    .adjust-chip.playing-a   { background: var(--primary-light); color: var(--primary-dark); }
+    .adjust-chip.playing-b   { background: #fde68a; color: #92400e; }
+    .adjust-chip.waiting     { background: var(--gray-100); color: var(--gray-600); }
+    .adjust-chip.selected    { border-color: var(--sky); box-shadow: 0 0 0 2px var(--sky-light, #bae6fd); }
+    .adjust-chip.swap-target { border-color: var(--accent); animation: pulse-border .6s infinite alternate; }
+    @keyframes pulse-border { from { box-shadow: 0 0 0 2px transparent; } to { box-shadow: 0 0 0 3px var(--accent); } }
+    .adjust-team-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .adjust-team-label { font-size: .72rem; color: var(--gray-400); margin-bottom: 3px; }
+
     /* ===== 响应式 ===== */
     @media (max-width: 380px) {
       .player-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
@@ -773,15 +796,21 @@
         <button id="gF" onclick="selectGender('F')">♀ 女</button>
       </div>
       <select id="newPlayerLevel" class="level-select" title="羽毛球水平等级">
-        <option value="1">Lv1 新手</option>
+        <option value="0.5">Lv0.5</option>
+        <option value="1">Lv1</option>
         <option value="1.5">Lv1.5</option>
-        <option value="2">Lv2 初级</option>
+        <option value="2">Lv2</option>
         <option value="2.5">Lv2.5</option>
-        <option value="3" selected>Lv3 中级</option>
+        <option value="3" selected>Lv3</option>
         <option value="3.5">Lv3.5</option>
-        <option value="4">Lv4 中高级</option>
+        <option value="4">Lv4</option>
         <option value="4.5">Lv4.5</option>
-        <option value="5">Lv5 高级</option>
+        <option value="5">Lv5</option>
+        <option value="5.5">Lv5.5</option>
+        <option value="6">Lv6</option>
+        <option value="6.5">Lv6.5</option>
+        <option value="7">Lv7</option>
+        <option value="7.5">Lv7.5+</option>
       </select>
       <button class="btn btn-primary btn-sm" onclick="addPlayer()">添加</button>
     </div>
@@ -983,15 +1012,21 @@
     </div>
     <div class="modal-field-label">羽毛球等级</div>
     <select id="editPlayerLevel">
-      <option value="1">Lv1 新手</option>
+      <option value="0.5">Lv0.5</option>
+      <option value="1">Lv1</option>
       <option value="1.5">Lv1.5</option>
-      <option value="2">Lv2 初级</option>
+      <option value="2">Lv2</option>
       <option value="2.5">Lv2.5</option>
-      <option value="3">Lv3 中级</option>
+      <option value="3">Lv3</option>
       <option value="3.5">Lv3.5</option>
-      <option value="4">Lv4 中高级</option>
+      <option value="4">Lv4</option>
       <option value="4.5">Lv4.5</option>
-      <option value="5">Lv5 高级</option>
+      <option value="5">Lv5</option>
+      <option value="5.5">Lv5.5</option>
+      <option value="6">Lv6</option>
+      <option value="6.5">Lv6.5</option>
+      <option value="7">Lv7</option>
+      <option value="7.5">Lv7.5+</option>
     </select>
     <div class="modal-delete-row">
       <button class="btn btn-danger btn-sm" onclick="deletePlayerFromEdit()">🗑 删除此选手</button>
@@ -999,6 +1034,34 @@
     <div class="modal-btns">
       <button class="btn btn-outline" onclick="closeModal('editPlayerModal')">取消</button>
       <button class="btn btn-primary" onclick="saveEditPlayer()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 手动调整对阵弹窗 -->
+<div class="modal-overlay" id="adjustMatchModal">
+  <div class="modal" style="max-height:88vh;overflow-y:auto;">
+    <div class="modal-title">🔄 调整对阵人员</div>
+    <div style="font-size:.78rem;color:var(--gray-500);margin-bottom:12px;">点击一名上场球员和一名替换者，完成换人</div>
+
+    <!-- 当前上场人员 -->
+    <div class="modal-field-label">当前上场</div>
+    <div id="adjustPlayingGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;"></div>
+
+    <!-- 当前轮空（可替换进来的人） -->
+    <div class="modal-field-label">等待轮空</div>
+    <div id="adjustWaitingGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;"></div>
+
+    <!-- 操作说明 -->
+    <div id="adjustHint" style="font-size:.8rem;color:var(--sky);min-height:1.5em;margin-bottom:10px;"></div>
+
+    <!-- 分队调整区 -->
+    <div class="modal-field-label">分队调整（拖动或点击队员互换）</div>
+    <div id="adjustTeamsArea" style="margin-bottom:12px;"></div>
+
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal('adjustMatchModal')">取消</button>
+      <button class="btn btn-primary" id="adjustSaveBtn" onclick="saveAdjustMatch()">保存调整</button>
     </div>
   </div>
 </div>
@@ -2159,6 +2222,10 @@ function renderMatchCard(m, mi, roundIdx) {
       </button>`
     : '';
 
+  const adjustBtn = STATE.isAdmin && m.status !== 'done'
+    ? `<button class="btn btn-outline btn-sm" style="margin-top:6px;width:100%;font-size:.78rem;" onclick="openAdjustMatch(${roundIdx},${mi})">🔄 调整人员</button>`
+    : '';
+
   return `<div class="match-card">
     <div class="match-header">
       <span class="match-court">第 ${m.court} 场地</span>
@@ -2178,6 +2245,7 @@ function renderMatchCard(m, mi, roundIdx) {
       </div>
       ${scoreHtml}
       ${scoreBtn}
+      ${adjustBtn}
     </div>
   </div>`;
 }
@@ -2201,6 +2269,210 @@ function nextRound() {
 // =====================================================
 // 比分录入
 // =====================================================
+// =====================================================
+// 手动调整对阵
+// =====================================================
+// 调整上下文
+const ADJUST_CTX = {
+  roundIdx: null,
+  matchIdx: null,
+  // 工作副本（修改前的快照）
+  teamA: [],   // [{id, name}]
+  teamB: [],
+  waiting: [], // [{id, name}]
+  // 交互状态
+  selectedPlaying: null,  // 已选中的上场球员 id（准备换出）
+  selectedWaiting: null,  // 已选中的轮空球员 id（准备换入）
+  selectedTeamSlot: null, // 已选中的队内球员 id（准备队内互换）
+};
+
+function openAdjustMatch(roundIdx, matchIdx) {
+  if (!requireAdmin()) return;
+  const round = STATE.rounds[roundIdx];
+  const m = round.matches[matchIdx];
+  if (!m) return;
+
+  ADJUST_CTX.roundIdx   = roundIdx;
+  ADJUST_CTX.matchIdx   = matchIdx;
+  ADJUST_CTX.teamA      = [...m.teamA];
+  ADJUST_CTX.teamB      = [...m.teamB];
+  ADJUST_CTX.waiting    = [...(round.waiting || [])];
+  ADJUST_CTX.selectedPlaying  = null;
+  ADJUST_CTX.selectedWaiting  = null;
+  ADJUST_CTX.selectedTeamSlot = null;
+
+  renderAdjustModal();
+  openModal('adjustMatchModal');
+}
+
+function getAdjustPlayer(id) {
+  const p = STATE.players.find(p => p.id === id);
+  return p ? p : { id, name: '?' };
+}
+
+function renderAdjustModal() {
+  const { teamA, teamB, waiting, selectedPlaying, selectedWaiting, selectedTeamSlot } = ADJUST_CTX;
+  const allPlaying = [...teamA, ...teamB];
+
+  // ---- 上场人员 ----
+  const playingGrid = document.getElementById('adjustPlayingGrid');
+  playingGrid.innerHTML = allPlaying.map(id => {
+    const p = getAdjustPlayer(id);
+    const isA = teamA.includes(id);
+    const cls = isA ? 'playing-a' : 'playing-b';
+    const sel = selectedPlaying === id ? ' selected' : '';
+    return `<span class="adjust-chip ${cls}${sel}" onclick="adjustSelectPlaying('${id}')">
+      ${isA ? 'A' : 'B'} ${escHtml(p.name)} <small style="opacity:.6">Lv${p.level||3}</small>
+    </span>`;
+  }).join('');
+
+  // ---- 轮空人员 ----
+  const waitingGrid = document.getElementById('adjustWaitingGrid');
+  if (waiting.length === 0) {
+    waitingGrid.innerHTML = '<span style="font-size:.78rem;color:var(--gray-400);">无轮空人员</span>';
+  } else {
+    waitingGrid.innerHTML = waiting.map(id => {
+      const p = getAdjustPlayer(id);
+      const sel = selectedWaiting === id ? ' selected' : '';
+      return `<span class="adjust-chip waiting${sel}" onclick="adjustSelectWaiting('${id}')">
+        ${escHtml(p.name)} <small style="opacity:.6">Lv${p.level||3}</small>
+      </span>`;
+    }).join('');
+  }
+
+  // ---- 提示信息 ----
+  const hint = document.getElementById('adjustHint');
+  if (selectedPlaying && selectedWaiting) {
+    hint.textContent = `将换出：${getAdjustPlayer(selectedPlaying).name}，换入：${getAdjustPlayer(selectedWaiting).name}（已选好，点保存即可）`;
+  } else if (selectedPlaying) {
+    hint.textContent = `已选中上场球员「${getAdjustPlayer(selectedPlaying).name}」，请从下方轮空列表或队伍中选择替换者`;
+  } else if (selectedTeamSlot) {
+    hint.textContent = `已选中「${getAdjustPlayer(selectedTeamSlot).name}」，点击同场另一位队员完成队内互换`;
+  } else {
+    hint.textContent = '点击上场球员选中，再点轮空球员完成换人；或点击两名上场球员互换队伍';
+  }
+
+  // ---- 分队区 ----
+  const teamsArea = document.getElementById('adjustTeamsArea');
+  teamsArea.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:120px;background:var(--primary-light);border-radius:10px;padding:8px;">
+        <div class="adjust-team-label">A 队</div>
+        <div class="adjust-team-row">
+          ${teamA.map(id => {
+            const p = getAdjustPlayer(id);
+            const sel = selectedTeamSlot === id ? ' selected' : '';
+            return `<span class="adjust-chip playing-a${sel}" onclick="adjustSelectTeamSlot('${id}')">${escHtml(p.name)}</span>`;
+          }).join('')}
+        </div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#fef9c3;border-radius:10px;padding:8px;">
+        <div class="adjust-team-label">B 队</div>
+        <div class="adjust-team-row">
+          ${teamB.map(id => {
+            const p = getAdjustPlayer(id);
+            const sel = selectedTeamSlot === id ? ' selected' : '';
+            return `<span class="adjust-chip playing-b${sel}" onclick="adjustSelectTeamSlot('${id}')">${escHtml(p.name)}</span>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function adjustSelectPlaying(id) {
+  if (ADJUST_CTX.selectedPlaying === id) {
+    ADJUST_CTX.selectedPlaying = null;
+  } else {
+    ADJUST_CTX.selectedPlaying = id;
+    ADJUST_CTX.selectedTeamSlot = null;
+    // 若已选了轮空球员，立即执行换人
+    if (ADJUST_CTX.selectedWaiting) {
+      adjustDoSwap();
+      return;
+    }
+  }
+  renderAdjustModal();
+}
+
+function adjustSelectWaiting(id) {
+  if (ADJUST_CTX.selectedWaiting === id) {
+    ADJUST_CTX.selectedWaiting = null;
+  } else {
+    ADJUST_CTX.selectedWaiting = id;
+    // 若已选了上场球员，立即执行换人
+    if (ADJUST_CTX.selectedPlaying) {
+      adjustDoSwap();
+      return;
+    }
+  }
+  renderAdjustModal();
+}
+
+/** 换人：把 selectedPlaying 换到等待区，selectedWaiting 换到对应队伍 */
+function adjustDoSwap() {
+  const { selectedPlaying, selectedWaiting } = ADJUST_CTX;
+  if (!selectedPlaying || !selectedWaiting) return;
+
+  const inA = ADJUST_CTX.teamA.includes(selectedPlaying);
+  if (inA) {
+    ADJUST_CTX.teamA = ADJUST_CTX.teamA.map(id => id === selectedPlaying ? selectedWaiting : id);
+  } else {
+    ADJUST_CTX.teamB = ADJUST_CTX.teamB.map(id => id === selectedPlaying ? selectedWaiting : id);
+  }
+  ADJUST_CTX.waiting = ADJUST_CTX.waiting.filter(id => id !== selectedWaiting);
+  ADJUST_CTX.waiting.push(selectedPlaying);
+
+  ADJUST_CTX.selectedPlaying = null;
+  ADJUST_CTX.selectedWaiting = null;
+  renderAdjustModal();
+  showToast(`✅ 已换人：${getAdjustPlayer(selectedWaiting).name} ↔ ${getAdjustPlayer(selectedPlaying).name}`);
+}
+
+function adjustSelectTeamSlot(id) {
+  if (!ADJUST_CTX.selectedTeamSlot) {
+    // 第一次点击：选中
+    ADJUST_CTX.selectedTeamSlot = id;
+    ADJUST_CTX.selectedPlaying = null;
+  } else if (ADJUST_CTX.selectedTeamSlot === id) {
+    // 再次点击同一人：取消
+    ADJUST_CTX.selectedTeamSlot = null;
+  } else {
+    // 点击另一人：互换队伍
+    const first = ADJUST_CTX.selectedTeamSlot;
+    const second = id;
+    const firstInA = ADJUST_CTX.teamA.includes(first);
+    const secondInA = ADJUST_CTX.teamA.includes(second);
+
+    if (firstInA === secondInA) {
+      // 同队：无需互换，取消选中
+      ADJUST_CTX.selectedTeamSlot = null;
+      showToast('两人在同一队，无需互换');
+      renderAdjustModal();
+      return;
+    }
+    // 互换
+    ADJUST_CTX.teamA = ADJUST_CTX.teamA.map(id => id === first ? second : id === second ? first : id);
+    ADJUST_CTX.teamB = ADJUST_CTX.teamB.map(id => id === first ? second : id === second ? first : id);
+    ADJUST_CTX.selectedTeamSlot = null;
+    showToast(`✅ 已互换队伍：${getAdjustPlayer(first).name} ↔ ${getAdjustPlayer(second).name}`);
+  }
+  renderAdjustModal();
+}
+
+function saveAdjustMatch() {
+  const { roundIdx, matchIdx, teamA, teamB, waiting } = ADJUST_CTX;
+  const round = STATE.rounds[roundIdx];
+  const m = round.matches[matchIdx];
+  m.teamA = [...teamA];
+  m.teamB = [...teamB];
+  round.waiting = [...waiting];
+  closeModal('adjustMatchModal');
+  pushToFirebase();
+  renderMatchPage();
+  showToast('✅ 对阵已更新');
+}
+
 function openScoreModal(roundIdx, matchIdx) {
   if (!requireScorer()) return;
   const round = STATE.rounds[roundIdx];
