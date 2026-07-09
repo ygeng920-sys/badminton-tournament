@@ -914,7 +914,8 @@
     <!-- 管理员操作栏 -->
     <div id="libraryAdminBar" style="display:none;margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="openAddLibraryPlayer()">➕ 新增球员</button>
-      <button class="btn btn-outline btn-sm" onclick="syncLibraryFromPlayers()">🔄 从当前名单同步到库</button>
+      <button class="btn btn-outline btn-sm" onclick="syncLibraryFromPlayers()">🔄 从当前名单同步</button>
+      <button class="btn btn-outline btn-sm" onclick="deduplicateLibrary()">🔍 合并重复记录</button>
     </div>
     <table class="stat-table">
       <thead>
@@ -1313,13 +1314,29 @@ window.syncFromRemote = function(data) {
       STATE.currentRoundIdx = STATE.activeRound;
     }
   }
-  // 同步赛事历史库
+  // 同步赛事历史库（兼容新格式 records:{} 和旧格式 list:[]）
   if (data.history) {
-    const list = Array.isArray(data.history.list)
-      ? data.history.list
-      : Object.values(data.history.list || {}).filter(Boolean);
-    STATE.tournamentHistory = list;
     STATE.tournamentCounter = data.history.counter ?? STATE.tournamentCounter;
+    let list = [];
+    if (data.history.records) {
+      // 新格式：按 date 降序排列
+      list = Object.values(data.history.records).filter(Boolean).map(rec => {
+        // 还原 participants：对象 → 数组，按 wins/points 降序
+        if (rec.participants && !Array.isArray(rec.participants)) {
+          rec.participants = Object.values(rec.participants)
+            .filter(Boolean)
+            .sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+        }
+        return rec;
+      }).sort((a, b) => (b.date || 0) - (a.date || 0));
+    } else if (data.history.list) {
+      // 旧格式兼容
+      list = Array.isArray(data.history.list)
+        ? data.history.list
+        : Object.values(data.history.list).filter(Boolean);
+      list.sort((a, b) => (b.date || 0) - (a.date || 0));
+    }
+    STATE.tournamentHistory = list;
   }
   // 同步独立球员库
   if (data.playerLibrary) {
@@ -1331,7 +1348,6 @@ window.syncFromRemote = function(data) {
 
 function pushToFirebase() {
   if (!window.FIREBASE_CONFIGURED || !window._fbDb) return;
-  // 加锁：写入期间屏蔽 Firebase 回调覆盖
   STATE._syncing = true;
   try {
     window._fbSet('settings', {
@@ -1347,12 +1363,25 @@ function pushToFirebase() {
     STATE.players.forEach(p => { playersObj[p.id] = p; });
     window._fbSet('players', playersObj);
     window._fbSet('rounds', STATE.rounds);
-    window._fbSet('history', { list: STATE.tournamentHistory, counter: STATE.tournamentCounter });
+
+    // 赛事历史：用 id 作为 key 的对象存储，避免 Firebase 把数组乱序
+    const histObj = {};
+    STATE.tournamentHistory.forEach(rec => {
+      // participants 也用 id 作为 key，避免嵌套数组问题
+      const recClean = { ...rec };
+      if (Array.isArray(rec.participants)) {
+        const pObj = {};
+        rec.participants.forEach(p => { pObj[p.id] = p; });
+        recClean.participants = pObj;
+      }
+      histObj[rec.id] = recClean;
+    });
+    window._fbSet('history', { records: histObj, counter: STATE.tournamentCounter });
+
     window._fbSet('playerLibrary', STATE.playerLibrary);
   } catch(e) {
     console.warn('Firebase 写入失败:', e);
   } finally {
-    // 500ms 后解锁，让 Firebase 回调重新生效
     setTimeout(() => { STATE._syncing = false; }, 500);
   }
 }
@@ -1499,8 +1528,13 @@ function addPlayer() {
   if (!name) { showToast('请输入姓名'); return; }
   if (STATE.players.find(p => p.name === name)) { showToast('已有同名人员'); return; }
   const level = parseFloat(document.getElementById('newPlayerLevel').value) || 3;
+
+  // 若球员库中已有同名记录，复用其 id，保证同一人始终是同一条库记录
+  const libEntry = findLibraryByName(name);
+  const id = libEntry ? libEntry.id : genId();
+
   STATE.players.push({
-    id: genId(),
+    id,
     name,
     gender: newPlayerGenderVal,
     level,
@@ -1540,8 +1574,10 @@ function batchImport() {
       const lv = parseFloat(parts[2]);
       if (!isNaN(lv)) level = Math.min(5, Math.max(1, lv));
     }
+    const libEntry = findLibraryByName(name);
+    const playerId = libEntry ? libEntry.id : genId();
     STATE.players.push({
-      id: genId(), name, gender, level, selected: true,
+      id: playerId, name, gender, level, selected: true,
       totalGames: 0, wins: 0, waitRounds: 0, points: 0, lastPlayedRound: -1,
       partners: {}, opponents: {},
       career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
@@ -2874,6 +2910,11 @@ function renderPlayerLibrary() {
   }).join('');
 }
 
+/** 按姓名在球员库中查找，名字是唯一业务键 */
+function findLibraryByName(name) {
+  return Object.values(STATE.playerLibrary).find(e => e.name === name) || null;
+}
+
 // =====================================================
 // 球员库管理（独立于参赛名单）
 // =====================================================
@@ -2906,10 +2947,23 @@ function openAddLibraryPlayer() {
 function saveAddLibraryPlayer() {
   const name = document.getElementById('libNewName').value.trim();
   if (!name) { showToast('请输入姓名'); return; }
-  // 检查名字是否已在库中
-  const dup = Object.values(STATE.playerLibrary).find(e => e.name === name);
-  if (dup) { showToast('球员库中已有同名球员'); return; }
   const level = parseFloat(document.getElementById('libNewLevel').value) || 3;
+
+  // 若库中已有同名球员，更新信息而非新建，防止重复
+  const existing = findLibraryByName(name);
+  if (existing) {
+    existing.gender = libNewGenderVal;
+    existing.level  = level;
+    // 同步到参赛名单
+    const inRoster = STATE.players.find(p => p.id === existing.id);
+    if (inRoster) { inRoster.gender = libNewGenderVal; inRoster.level = level; }
+    closeModal('addLibraryPlayerModal');
+    pushToFirebase();
+    renderPlayerLibrary();
+    showToast(`「${name}」已在球员库中，已更新等级/性别`);
+    return;
+  }
+
   const id = genId();
   STATE.playerLibrary[id] = {
     id, name, gender: libNewGenderVal, level,
@@ -2989,20 +3043,64 @@ function deleteLibraryPlayer() {
  * 管理员手动把当前参赛名单里有过历史数据（career）的人同步到球员库。
  * 用于首次使用新版本、或名单和库脱节时的一键补救。
  */
+/**
+ * 一键去重：扫描球员库，把同名的多条记录合并为一条。
+ */
+function deduplicateLibrary() {
+  if (!requireAdmin()) return;
+  const byName = {};
+  Object.values(STATE.playerLibrary).forEach(entry => {
+    if (!byName[entry.name]) byName[entry.name] = [];
+    byName[entry.name].push(entry);
+  });
+  let mergedCount = 0;
+  Object.entries(byName).forEach(([name, entries]) => {
+    if (entries.length <= 1) return;
+    entries.sort((a, b) => (a.career?.firstAt || 0) - (b.career?.firstAt || 0));
+    const primary = entries[0];
+    const c = primary.career || { tournaments:0, games:0, wins:0, points:0, firstAt:null, lastAt:null };
+    entries.slice(1).forEach(dup => {
+      const dc = dup.career || {};
+      c.tournaments += (dc.tournaments || 0);
+      c.games       += (dc.games || 0);
+      c.wins        += (dc.wins || 0);
+      c.points      += (dc.points || 0);
+      if (!c.firstAt || (dc.firstAt && dc.firstAt < c.firstAt)) c.firstAt = dc.firstAt;
+      if (!c.lastAt  || (dc.lastAt  && dc.lastAt  > c.lastAt))  c.lastAt  = dc.lastAt;
+      delete STATE.playerLibrary[dup.id];
+      const rp = STATE.players.find(p => p.id === dup.id);
+      if (rp) rp.id = primary.id;
+      mergedCount++;
+    });
+    primary.career = c;
+    STATE.playerLibrary[primary.id] = primary;
+  });
+  if (mergedCount === 0) {
+    showToast('\u2705 \u7403\u5458\u5e93\u4e2d\u65e0\u91cd\u590d\u8bb0\u5f55');
+  } else {
+    pushToFirebase();
+    renderPlayerLibrary();
+    showToast('\u2705 \u5df2\u5408\u5e76 ' + mergedCount + ' \u6761\u91cd\u590d\u8bb0\u5f55');
+  }
+}
+
 function syncLibraryFromPlayers() {
   if (!requireAdmin()) return;
   let added = 0, updated = 0;
   STATE.players.forEach(p => {
     const c = p.career;
-    if (!c || c.tournaments === 0) return; // 没参加过比赛的不同步
-    if (STATE.playerLibrary[p.id]) {
-      // 已在库中：以库中数据为准，只更新姓名/性别/等级
-      STATE.playerLibrary[p.id].name   = p.name;
-      STATE.playerLibrary[p.id].gender = p.gender;
-      STATE.playerLibrary[p.id].level  = p.level || 3;
+    if (!c || c.tournaments === 0) return;
+    // 优先按 id 查，其次按名字查
+    const byId   = STATE.playerLibrary[p.id];
+    const byName = findLibraryByName(p.name);
+    const entry  = byId || byName;
+    if (entry) {
+      entry.name   = p.name;
+      entry.gender = p.gender;
+      entry.level  = p.level || 3;
+      STATE.playerLibrary[entry.id] = entry;
       updated++;
     } else {
-      // 不在库中：整体写入
       STATE.playerLibrary[p.id] = {
         id: p.id, name: p.name, gender: p.gender, level: p.level || 3,
         career: { ...c },
@@ -3048,33 +3146,45 @@ function archiveCurrentTournament(silent) {
 
   // 累加进每位参赛选手的 career 数据（写入独立球员库）
   participants.forEach(part => {
-    // 写入 playerLibrary（独立库，清空 players 不影响）
-    const existing = STATE.playerLibrary[part.id] || {
-      id: part.id, name: part.name, gender: part.gender, level: part.level || 3,
-      career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
-    };
-    existing.name = part.name;     // 同步最新姓名/等级（可能被编辑过）
-    existing.gender = part.gender;
-    existing.level = part.level || 3;
-    const c = existing.career;
+    // 优先按 id 查，其次按姓名查（兼容 id 不一致的情况）
+    let libEntry = STATE.playerLibrary[part.id] || findLibraryByName(part.name);
+
+    if (libEntry && libEntry.id !== part.id) {
+      // 发现同名但 id 不同的库记录 → 以库中 id 为准，同时修正 STATE.players
+      const rosterPlayer = STATE.players.find(x => x.id === part.id);
+      if (rosterPlayer) rosterPlayer.id = libEntry.id;
+      part.id = libEntry.id;
+    }
+
+    if (!libEntry) {
+      libEntry = {
+        id: part.id, name: part.name, gender: part.gender, level: part.level || 3,
+        career: { tournaments: 0, games: 0, wins: 0, points: 0, firstAt: null, lastAt: null },
+      };
+    }
+
+    libEntry.name   = part.name;
+    libEntry.gender = part.gender;
+    libEntry.level  = part.level || 3;
+    const c = libEntry.career;
     c.tournaments += 1;
-    c.games += part.totalGames;
-    c.wins += part.wins;
-    c.points += part.points;
+    c.games   += part.totalGames;
+    c.wins    += part.wins;
+    c.points  += part.points;
     if (!c.firstAt) c.firstAt = now;
     c.lastAt = now;
-    STATE.playerLibrary[part.id] = existing;
+    STATE.playerLibrary[libEntry.id] = libEntry;
 
     // 同步写回 STATE.players（兼容当场统计视图）
-    const p = STATE.players.find(x => x.id === part.id);
+    const p = STATE.players.find(x => x.id === libEntry.id);
     if (p) {
       const pc = ensureCareer(p);
-      pc.tournaments = (existing.career.tournaments);
-      pc.games = existing.career.games;
-      pc.wins = existing.career.wins;
-      pc.points = existing.career.points;
-      pc.firstAt = existing.career.firstAt;
-      pc.lastAt = existing.career.lastAt;
+      pc.tournaments = c.tournaments;
+      pc.games   = c.games;
+      pc.wins    = c.wins;
+      pc.points  = c.points;
+      pc.firstAt = c.firstAt;
+      pc.lastAt  = c.lastAt;
     }
   });
 
