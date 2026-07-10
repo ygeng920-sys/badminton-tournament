@@ -1319,18 +1319,28 @@ window.syncFromRemote = function(data) {
     STATE.tournamentCounter = data.history.counter ?? STATE.tournamentCounter;
     let list = [];
     if (data.history.records) {
-      // 新格式：按 date 降序排列
       list = Object.values(data.history.records).filter(Boolean).map(rec => {
-        // 还原 participants：对象 → 数组，按 wins/points 降序
+        // 还原 participants：支持 {p0:{},p1:{},_count:N} 格式和旧的 {id:{}} 格式
         if (rec.participants && !Array.isArray(rec.participants)) {
-          rec.participants = Object.values(rec.participants)
-            .filter(Boolean)
-            .sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+          const pRaw = rec.participants;
+          // 新格式：key 是 p0, p1, p2...
+          if ('_count' in pRaw) {
+            const arr = [];
+            for (let i = 0; i < pRaw._count; i++) {
+              if (pRaw['p' + i]) arr.push(pRaw['p' + i]);
+            }
+            rec.participants = arr;
+          } else {
+            // 旧格式：key 是 player id
+            rec.participants = Object.values(pRaw)
+              .filter(v => v && typeof v === 'object' && v.name)
+              .sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+          }
         }
+        if (!rec.participants) rec.participants = [];
         return rec;
       }).sort((a, b) => (b.date || 0) - (a.date || 0));
     } else if (data.history.list) {
-      // 旧格式兼容
       list = Array.isArray(data.history.list)
         ? data.history.list
         : Object.values(data.history.list).filter(Boolean);
@@ -1367,11 +1377,12 @@ function pushToFirebase() {
     // 赛事历史：用 id 作为 key 的对象存储，避免 Firebase 把数组乱序
     const histObj = {};
     STATE.tournamentHistory.forEach(rec => {
-      // participants 也用 id 作为 key，避免嵌套数组问题
       const recClean = { ...rec };
+      // participants 转为以数字索引为 key 的对象（Firebase 不丢弃数字 key 的对象）
+      // 哪怕 participants 为空也写入一个标记，防止整条记录被 Firebase 当 null 丢弃
       if (Array.isArray(rec.participants)) {
-        const pObj = {};
-        rec.participants.forEach(p => { pObj[p.id] = p; });
+        const pObj = { _count: rec.participants.length };
+        rec.participants.forEach((p, i) => { pObj['p' + i] = p; });
         recClean.participants = pObj;
       }
       histObj[rec.id] = recClean;
@@ -3120,13 +3131,34 @@ function syncLibraryFromPlayers() {
 function archiveCurrentTournament(silent) {
   if (STATE.rounds.length === 0) return false;
 
-  const participants = STATE.players
-    .filter(p => p.totalGames > 0)
-    .map(p => ({
-      id: p.id, name: p.name, gender: p.gender, level: p.level || 3,
-      totalGames: p.totalGames, wins: p.wins, points: p.points,
-    }))
-    .sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+  // ── 从 rounds 中提取所有实际上场过的球员 id（不依赖 totalGames，测试时没录分也能归档）
+  const playedIds = new Set();
+  STATE.rounds.forEach(r => {
+    r.matches.forEach(m => {
+      [...m.teamA, ...m.teamB].forEach(id => playedIds.add(id));
+    });
+  });
+
+  // 若完全没有比赛（所有 match 都是空的），则不归档
+  if (playedIds.size === 0) {
+    if (!silent) showToast('没有找到任何上场记录，无法归档');
+    return false;
+  }
+
+  // 构建参与者快照（先用 totalGames 数据，没有则标 0）
+  const participants = [...playedIds]
+    .map(id => {
+      const p = STATE.players.find(x => x.id === id);
+      if (!p) return null;
+      return {
+        id: p.id, name: p.name, gender: p.gender, level: p.level || 3,
+        totalGames: p.totalGames || 0,
+        wins: p.wins || 0,
+        points: p.points || 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.wins - a.wins) || (b.totalGames - a.totalGames) || (b.points - a.points));
 
   const now = Date.now();
   STATE.tournamentCounter = (STATE.tournamentCounter || 0) + 1;
@@ -3141,16 +3173,15 @@ function archiveCurrentTournament(silent) {
     totalRounds: STATE.rounds.length,
     setsPerMatch: STATE.setsPerMatch,
     participants,
+    _hasData: true, // 防止 Firebase 因全部字段为空值而丢弃整条记录
   };
   STATE.tournamentHistory = [record, ...STATE.tournamentHistory];
 
-  // 累加进每位参赛选手的 career 数据（写入独立球员库）
+  // 累加进球员库（只累加有实际上场记录的，totalGames>0 的才算有成绩）
   participants.forEach(part => {
-    // 优先按 id 查，其次按姓名查（兼容 id 不一致的情况）
     let libEntry = STATE.playerLibrary[part.id] || findLibraryByName(part.name);
 
     if (libEntry && libEntry.id !== part.id) {
-      // 发现同名但 id 不同的库记录 → 以库中 id 为准，同时修正 STATE.players
       const rosterPlayer = STATE.players.find(x => x.id === part.id);
       if (rosterPlayer) rosterPlayer.id = libEntry.id;
       part.id = libEntry.id;
@@ -3175,7 +3206,6 @@ function archiveCurrentTournament(silent) {
     c.lastAt = now;
     STATE.playerLibrary[libEntry.id] = libEntry;
 
-    // 同步写回 STATE.players（兼容当场统计视图）
     const p = STATE.players.find(x => x.id === libEntry.id);
     if (p) {
       const pc = ensureCareer(p);
@@ -3196,7 +3226,7 @@ function archiveCurrentTournament(silent) {
   STATE.activeRound = 0;
   STATE.currentRoundIdx = 0;
 
-  if (!silent) showToast(`🏁 已归档「${record.title}」`);
+  if (!silent) showToast(`🏁 已归档「${record.title}」（${participants.length} 人参赛）`);
   return true;
 }
 
@@ -3222,6 +3252,7 @@ function renderTournamentHistory() {
   container.innerHTML = STATE.tournamentHistory.map(rec => {
     const modeLabel = rec.mode === 'mixed' ? '混双' : '自由双打';
     const dateStr = new Date(rec.date).toLocaleString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const parts = rec.participants || [];
     const deleteBtn = canManage
       ? `<button class="btn btn-danger btn-sm" style="padding:4px 10px;font-size:.75rem;" onclick="event.stopPropagation();deleteHistoryEntry('${rec.id}')">删除</button>`
       : '';
@@ -3231,7 +3262,7 @@ function renderTournamentHistory() {
         ${deleteBtn}
       </div>
       <div style="font-size:.75rem;color:var(--gray-400);margin-top:4px;">
-        ${dateStr} · ${modeLabel} · ${rec.courts} 片场地 · ${rec.totalRounds} 轮 · ${rec.participants.length} 人参赛
+        ${dateStr} · ${modeLabel} · ${rec.courts || 1} 片场地 · ${rec.totalRounds || 0} 轮 · ${parts.length} 人参赛
       </div>
     </div>`;
   }).join('');
@@ -3241,17 +3272,24 @@ function viewHistoryDetail(id) {
   const rec = STATE.tournamentHistory.find(r => r.id === id);
   if (!rec) return;
   document.getElementById('historyDetailTitle').textContent = `🗂 ${rec.title}`;
-  document.getElementById('historyDetailTbody').innerHTML = rec.participants.map((p, i) => {
-    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
-    const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
-    return `<tr>
-      <td class="stat-rank ${rankClass}">${rankIcon}</td>
-      <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
-      <td>${p.totalGames}</td>
-      <td>${p.wins}</td>
-      <td>${p.points}</td>
-    </tr>`;
-  }).join('');
+  const parts = rec.participants || [];
+  const hasScores = parts.some(p => p.totalGames > 0);
+  if (parts.length === 0) {
+    document.getElementById('historyDetailTbody').innerHTML =
+      '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:16px;">无参赛记录</td></tr>';
+  } else {
+    document.getElementById('historyDetailTbody').innerHTML = parts.map((p, i) => {
+      const rankClass = i === 0 && hasScores ? 'gold' : i === 1 && hasScores ? 'silver' : i === 2 && hasScores ? 'bronze' : '';
+      const rankIcon  = i === 0 && hasScores ? '🥇' : i === 1 && hasScores ? '🥈' : i === 2 && hasScores ? '🥉' : (i + 1);
+      return `<tr>
+        <td class="stat-rank ${rankClass}">${rankIcon}</td>
+        <td><b>${escHtml(p.name)}</b>${p.gender === 'F' ? '<span style="color:#ec4899;font-size:.7rem;margin-left:2px;">♀</span>' : ''}</td>
+        <td>${p.totalGames || 0}</td>
+        <td>${p.wins || 0}</td>
+        <td>${p.points || 0}</td>
+      </tr>`;
+    }).join('');
+  }
   openModal('historyDetailModal');
 }
 
